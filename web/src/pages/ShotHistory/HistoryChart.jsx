@@ -27,6 +27,7 @@ function getChartData(shot) {
   const tf = [];
   const v = [];
   const vf = [];
+  const pp = [];
 
   // Process all samples to build data arrays
   for (let i = 0; i < data.length; i++) {
@@ -42,6 +43,9 @@ function getChartData(shot) {
     tf.push({ x, y: s.tf });
     v.push({ x, y: s.v });
     vf.push({ x, y: s.vf });
+    if (typeof s.pp === 'number') {
+      pp.push({ x, y: s.pp });
+    }
   }
 
   // For v5+ files, use phase transitions from header
@@ -68,6 +72,7 @@ function getChartData(shot) {
   // Check if weight data has any non-zero values
   const hasWeight = v.some(point => point.y > 0);
   const hasWeightFlow = vf.some(point => point.y > 0);
+  const hasDuty = pp.some(point => point.y > 0); // pp only exists in v6+ files
 
   // Create phase annotations
   const phaseAnnotations = {};
@@ -169,7 +174,9 @@ function getChartData(shot) {
           data: tp,
         },
         {
-          label: 'Current Pump Flow',
+          // The controller derives this from its pump model, not from a sensor;
+          // in flow phases it tracks the commanded value, not reality.
+          label: 'Pump Flow (modelled)',
           borderColor: '#63993D',
           pointStyle: false,
           yAxisID: 'y1',
@@ -210,6 +217,18 @@ function getChartData(shot) {
                 pointStyle: false,
                 yAxisID: 'y1',
                 data: vf,
+              },
+            ]
+          : []),
+        ...(hasDuty
+          ? [
+              {
+                label: 'Pump Duty',
+                borderColor: '#D97706',
+                borderWidth: 1.5,
+                pointStyle: false,
+                yAxisID: 'y3',
+                data: pp,
               },
             ]
           : []),
@@ -297,6 +316,24 @@ function getChartData(shot) {
                 offset: true,
                 ticks: {
                   callback: value => `${value.toFixed()} g`,
+                  font: {
+                    size: window.innerWidth < 640 ? 10 : 12,
+                  },
+                },
+                grid: { drawOnChartArea: false },
+              },
+            }
+          : {}),
+        ...(hasDuty
+          ? {
+              y3: {
+                type: 'linear',
+                min: 0,
+                max: 100,
+                position: 'right',
+                offset: true,
+                ticks: {
+                  callback: value => `${value.toFixed()} %`,
                   font: {
                     size: window.innerWidth < 640 ? 10 : 12,
                   },

@@ -12,6 +12,7 @@ const PRESSURE_SCALE = 10;
 const FLOW_SCALE = 100;
 const WEIGHT_SCALE = 10;
 const RESISTANCE_SCALE = 100;
+const PUMP_POWER_SCALE = 10;
 
 // Field bit positions (must match shot_log_format.h)
 const FIELD_BITS = {
@@ -28,6 +29,7 @@ const FIELD_BITS = {
   EV: 10, // estimated weight
   PR: 11, // puck resistance
   SI: 12, // system info (v2+)
+  PP: 13, // pump power / commanded duty (v6+)
   // Phase number moved to header transitions in v5+
 };
 
@@ -63,6 +65,7 @@ const FIELD_DEFS = {
       extendedRecording: !!(val & 0x0010),
     }),
   },
+  [FIELD_BITS.PP]: { name: 'pp', type: 'uint16', scale: PUMP_POWER_SCALE },
   // Phase number field removed in v5+, moved to header transitions
 };
 
@@ -204,7 +207,10 @@ export function parseBinaryShot(arrayBuffer, id) {
   const fieldLayout = [];
   for (let bitPos = 0; bitPos < 32; bitPos++) {
     if (fieldsMask & (1 << bitPos)) {
-      const fieldDef = FIELD_DEFS[bitPos];
+      // Bit 13 is pp only from v6; in pre-v5 nightly files the same bit was the
+      // per-sample phase number, which must not parse as a duty value.
+      const fieldDef =
+        bitPos === FIELD_BITS.PP && version < 6 ? undefined : FIELD_DEFS[bitPos];
       if (fieldDef) {
         fieldLayout.push({ ...fieldDef, bitPos });
       } else {

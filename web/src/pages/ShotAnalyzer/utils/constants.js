@@ -31,7 +31,7 @@ export const groups = {
   basics: 'Basic Metrics',
   pressure: 'Pressure (bar)',
   target_pressure: 'Target Pressure (bar)',
-  flow: 'Pump Flow (ml/s)',
+  flow: 'Modelled Pump Flow (ml/s)',
   target_flow: 'Target Pump Flow (ml/s)',
   puckflow: 'Puck Flow (ml/s)',
   temp: 'Temperature (℃)',

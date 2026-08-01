@@ -89,14 +89,24 @@ export const columnConfig = [
   }),
   createColumn({
     id: 'f_se',
-    label: 'Pump Flow (ml/s)',
+    label: 'Modelled Pump Flow (ml/s)',
     type: COLUMN_TYPES.SE,
     group: 'flow',
     default: true,
     targetType: 'flow',
   }),
-  createColumn({ id: 'f_mm', label: 'Pump Flow (ml/s)', type: COLUMN_TYPES.MM, group: 'flow' }),
-  createColumn({ id: 'f_avg', label: 'Pump Flow (ml/s)', type: COLUMN_TYPES.AVG, group: 'flow' }),
+  createColumn({
+    id: 'f_mm',
+    label: 'Modelled Pump Flow (ml/s)',
+    type: COLUMN_TYPES.MM,
+    group: 'flow',
+  }),
+  createColumn({
+    id: 'f_avg',
+    label: 'Modelled Pump Flow (ml/s)',
+    type: COLUMN_TYPES.AVG,
+    group: 'flow',
+  }),
   createColumn({
     id: 'tf_se',
     label: 'Target Pump Flow (ml/s)',

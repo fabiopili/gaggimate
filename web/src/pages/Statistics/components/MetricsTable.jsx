@@ -78,12 +78,12 @@ const METRIC_ROWS = [
   },
   {
     key: 'f',
-    label: 'Pump Flow',
+    label: 'Pump Flow (modelled)',
     unit: 'ml/s',
     colorClass: 'text-[var(--analyzer-flow-text)]',
     accentColor: 'var(--analyzer-flow-text)',
     icon: faFaucet,
-    averageDescription: 'Time-weighted average flow',
+    averageDescription: 'Time-weighted average of the modelled pump flow',
   },
   {
     key: 'water',

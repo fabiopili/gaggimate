@@ -23,6 +23,12 @@ constexpr uint16_t WEIGHT_MAX_VALUE = 10000; // 1000.0 g
 constexpr uint16_t RESISTANCE_MAX_VALUE = 0xFFFF;
 constexpr int16_t FLOW_MIN_VALUE = -2000; // -20.00 ml/s
 constexpr int16_t FLOW_MAX_VALUE = 2000;  //  20.00 ml/s
+constexpr float PUMP_POWER_SCALE = 10.0f;
+constexpr uint16_t PUMP_POWER_MAX_VALUE = 1000; // 100.0 %
+
+// Minimum count of positive scale-flow samples (2 s at the 250 ms interval)
+// before the scale average is trusted over the model average for avgFlow.
+constexpr uint32_t MIN_BT_FLOW_SAMPLES = 8;
 
 // Largest believable change in scale weight within one sample interval. A real
 // espresso never adds >5 g in 250 ms (that is already 20 ml/s, the saturation
@@ -144,6 +150,11 @@ void ShotHistoryPlugin::record() {
         if (fabsf(btDiff) <= MAX_PLAUSIBLE_WEIGHT_DELTA) {
             const float btFlow = btDiff / (SHOT_LOG_SAMPLE_INTERVAL_MS / 1000.0f);
             currentBluetoothFlow = currentBluetoothFlow * 0.75f + btFlow * 0.25f;
+            // Weight only accumulates during a shot; cup removal or a re-tare
+            // shows up as an implausible step and never lowers this peak.
+            if (btWeight > peakBluetoothWeight) {
+                peakBluetoothWeight = btWeight;
+            }
         }
         lastBluetoothWeight = btWeight;
 
@@ -162,6 +173,7 @@ void ShotHistoryPlugin::record() {
         sample.ev = encodeUnsigned(currentEstimatedWeight, WEIGHT_SCALE, WEIGHT_MAX_VALUE);
         sample.pr = encodeUnsigned(currentPuckResistance, RESISTANCE_SCALE, RESISTANCE_MAX_VALUE);
         sample.si = getSystemInfo(); // Pack system state information
+        sample.pp = encodeUnsigned(controller->getCurrentPumpPower(), PUMP_POWER_SCALE, PUMP_POWER_MAX_VALUE);
 
         // Track phase transitions
         if (controller->getMode() == MODE_BREW) {
@@ -197,6 +209,12 @@ void ShotHistoryPlugin::record() {
             if (sample.fl > 0) {
                 flowSumScaled += sample.fl;
                 positiveFlowCount++;
+            }
+            // Live samples only: extended recording captures the post-shot
+            // dribble, which would dilute the scale-flow average.
+            if (recording && sample.vf > 0) {
+                btFlowSumScaled += sample.vf;
+                positiveBtFlowCount++;
             }
         }
 
@@ -248,7 +266,9 @@ void ShotHistoryPlugin::record() {
         header.sampleCount = sampleCount;
         header.durationMs = millis() - shotStart;
         header.finalExitReason = finalExitReason; // why the shot ended (last phase exit or manual abort)
-        float finalWeight = currentBluetoothWeight;
+        // Use the peak plausible weight, not the live reading: by now the scale
+        // has often re-tared or the cup was removed, leaving the live value at 0.
+        float finalWeight = peakBluetoothWeight > 0.0f ? peakBluetoothWeight : currentBluetoothWeight;
         header.finalWeight = finalWeight > 0.0f ? encodeUnsigned(finalWeight, WEIGHT_SCALE, WEIGHT_MAX_VALUE) : 0;
         currentFile.seek(0, SeekSet);
         currentFile.write(reinterpret_cast<const uint8_t *>(&header), sizeof(header));
@@ -282,7 +302,11 @@ void ShotHistoryPlugin::record() {
             indexEntry.profileName[sizeof(indexEntry.profileName) - 1] = '\0';
             indexEntry.avgTemp = tempSampleCount ? static_cast<uint16_t>(tempSumScaled / tempSampleCount) : 0;
             indexEntry.maxPressure = maxPressureScaled;
-            indexEntry.avgFlow = positiveFlowCount ? static_cast<uint16_t>(flowSumScaled / positiveFlowCount) : 0;
+            // Prefer the scale-derived average: the model flow (fl) is pinned to
+            // the setpoint in flow phases and can hide large real errors.
+            indexEntry.avgFlow = positiveBtFlowCount >= MIN_BT_FLOW_SAMPLES
+                                     ? static_cast<uint16_t>(btFlowSumScaled / positiveBtFlowCount)
+                                     : (positiveFlowCount ? static_cast<uint16_t>(flowSumScaled / positiveFlowCount) : 0);
 
             if (!appendToIndex(indexEntry)) {
                 ESP_LOGE("ShotHistoryPlugin", "CRITICAL: Failed to add completed shot %u to index", indexEntry.id);
@@ -328,6 +352,7 @@ void ShotHistoryPlugin::startRecording() {
     currentEstimatedWeight = 0.0f;
     currentBluetoothFlow = 0.0f;
     lastBluetoothWeight = 0.0f;
+    peakBluetoothWeight = 0.0f;
     currentProfileName = controller->getProfileManager()->getSelectedProfile().label;
     recording = true;
     extendedRecording = false;
@@ -339,6 +364,8 @@ void ShotHistoryPlugin::startRecording() {
     maxPressureScaled = 0;
     flowSumScaled = 0;
     positiveFlowCount = 0;
+    btFlowSumScaled = 0;
+    positiveBtFlowCount = 0;
 
     // Reset phase tracking for new shot
     lastRecordedPhase = 0xFF;                                      // Invalid value to detect first phase
@@ -384,8 +411,14 @@ void ShotHistoryPlugin::endRecording() {
         Event statsEvent;
         statsEvent.id = "evt:shot-finished-stats";
         statsEvent.setFloat("maxPressure", maxPressureScaled > 0 ? maxPressureScaled / PRESSURE_SCALE : 0.0f);
-        statsEvent.setFloat("avgFlow",
-                            positiveFlowCount > 0 ? (flowSumScaled / static_cast<float>(positiveFlowCount)) / FLOW_SCALE : 0.0f);
+        // Same preference as the index entry: scale average when available.
+        float avgFlowStat = 0.0f;
+        if (positiveBtFlowCount >= MIN_BT_FLOW_SAMPLES) {
+            avgFlowStat = (btFlowSumScaled / static_cast<float>(positiveBtFlowCount)) / FLOW_SCALE;
+        } else if (positiveFlowCount > 0) {
+            avgFlowStat = (flowSumScaled / static_cast<float>(positiveFlowCount)) / FLOW_SCALE;
+        }
+        statsEvent.setFloat("avgFlow", avgFlowStat);
         pluginManager->trigger(statsEvent);
     }
 
@@ -959,13 +992,27 @@ void ShotHistoryPlugin::rebuildIndex() {
         // Recompute the per-shot aggregates from the sample records (same math
         // as the running sums in record()).
         {
-            uint32_t tempSum = 0, tempCount = 0, flowSum = 0, flowCount = 0;
+            uint32_t tempSum = 0, tempCount = 0, flowSum = 0, flowCount = 0, btFlowSum = 0, btFlowCount = 0;
             uint16_t maxPressure = 0;
             ShotLogSample sample{};
+            // Older files carry shorter sample records; the shared prefix has
+            // the same layout, so read the file's record size and leave newer
+            // fields (e.g. pp) zeroed.
+            size_t fileSampleSize = shotHeader.reserved0;
+            if (fileSampleSize == 0) {
+                fileSampleSize = __builtin_popcount(shotHeader.fieldsMask) * 2;
+            }
+            if (fileSampleSize == 0) {
+                fileSampleSize = sizeof(sample);
+            }
+            const size_t readSize = fileSampleSize < sizeof(sample) ? fileSampleSize : sizeof(sample);
             shotFile.seek(shotHeader.headerSize, SeekSet);
             for (uint32_t s = 0; s < shotHeader.sampleCount; s++) {
-                if (shotFile.read(reinterpret_cast<uint8_t *>(&sample), sizeof(sample)) != sizeof(sample)) {
+                if (shotFile.read(reinterpret_cast<uint8_t *>(&sample), readSize) != readSize) {
                     break;
+                }
+                if (fileSampleSize > readSize) {
+                    shotFile.seek(fileSampleSize - readSize, SeekCur);
                 }
                 tempSum += sample.ct;
                 tempCount++;
@@ -976,10 +1023,18 @@ void ShotHistoryPlugin::rebuildIndex() {
                     flowSum += sample.fl;
                     flowCount++;
                 }
+                // Mirror the running sums in record(): scale flow from live
+                // samples only, skipping the extended-recording dribble.
+                if (sample.vf > 0 && !(sample.si & SYSTEM_INFO_EXTENDED_RECORDING)) {
+                    btFlowSum += sample.vf;
+                    btFlowCount++;
+                }
             }
             entry.avgTemp = tempCount ? static_cast<uint16_t>(tempSum / tempCount) : 0;
             entry.maxPressure = maxPressure;
-            entry.avgFlow = flowCount ? static_cast<uint16_t>(flowSum / flowCount) : 0;
+            entry.avgFlow = btFlowCount >= MIN_BT_FLOW_SAMPLES
+                                ? static_cast<uint16_t>(btFlowSum / btFlowCount)
+                                : (flowCount ? static_cast<uint16_t>(flowSum / flowCount) : 0);
         }
 
         // Check for notes and extract rating and volume override
