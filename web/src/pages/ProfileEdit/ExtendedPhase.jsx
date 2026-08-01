@@ -1,5 +1,6 @@
 import { ExtendedPhaseTarget, TargetTypes } from './ExtendedPhaseTarget.jsx';
 import { isNumber } from 'chart.js/helpers';
+import { parseFloatOr } from '../../utils/number.js';
 import { useCallback } from 'preact/hooks';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus } from '@fortawesome/free-solid-svg-icons/faPlus';
@@ -127,7 +128,9 @@ export function ExtendedPhase({ phase, index, onChange, onRemove, pressureAvaila
                 className='grow'
                 type='number'
                 value={`${phase.temperature || 0}`}
-                onChange={e => onFieldChange('temperature', parseFloat(e.target.value))}
+                onChange={e =>
+                  onFieldChange('temperature', parseFloatOr(e.target.value, phase.temperature || 0))
+                }
                 aria-label='Target temperature'
                 min='0'
                 step='0.1'
@@ -277,7 +280,7 @@ export function ExtendedPhase({ phase, index, onChange, onRemove, pressureAvaila
                 min={0}
                 max={100}
                 value={pumpPower.toString()}
-                onChange={e => onFieldChange('pump', parseFloat(e.target.value))}
+                onChange={e => onFieldChange('pump', parseFloatOr(e.target.value, pumpPower))}
                 aria-label='Pump power as percentage'
               />
               <span aria-label='percent'>%</span>
@@ -307,7 +310,12 @@ export function ExtendedPhase({ phase, index, onChange, onRemove, pressureAvaila
                     min={mode === 'pressure' ? '0.1' : '0'}
                     value={pressure.toString()}
                     onChange={e =>
-                      onFieldChange('pump', { ...phase.pump, pressure: parseFloat(e.target.value) })
+                      onFieldChange('pump', {
+                        ...phase.pump,
+                        // A cleared box must not become null/0 and silently
+                        // strip the pressure ceiling; 0 has to be typed.
+                        pressure: parseFloatOr(e.target.value, pressure),
+                      })
                     }
                     aria-label='Pressure in bar'
                   />
@@ -331,7 +339,7 @@ export function ExtendedPhase({ phase, index, onChange, onRemove, pressureAvaila
                     step='0.01'
                     value={flow.toString()}
                     onChange={e =>
-                      onFieldChange('pump', { ...phase.pump, flow: parseFloat(e.target.value) })
+                      onFieldChange('pump', { ...phase.pump, flow: parseFloatOr(e.target.value, flow) })
                     }
                     aria-label='Flow rate in grams per second'
                     min={mode === 'flow' ? '0.1' : '0'}
@@ -476,7 +484,7 @@ export function ExtendedPhase({ phase, index, onChange, onRemove, pressureAvaila
                     onChange={e =>
                       onFieldChange('transition', {
                         ...phase.transition,
-                        duration: parseFloat(e.target.value),
+                        duration: parseFloatOr(e.target.value, phase.transition?.duration || 0),
                       })
                     }
                     aria-label={`Transition duration in ${rampUnit}`}
