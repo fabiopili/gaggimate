@@ -13,14 +13,14 @@ Written 2026-08-01 to kickstart a fresh session whose only job is to build, flas
 
 ## Step 0: sandbox
 
-The session must run with `~/.platformio` writable, which repeated ad hoc `--allow` flags failed to deliver. A profile draft with the grant is waiting:
+The `~/.platformio` filesystem grant is already in the promoted `claude-code-local` profile, but the first build attempt then failed at library installation because the sandbox proxy blocks the PlatformIO registry (`HTTPClientError` on NimBLE-Arduino; all `*.platformio.org` hosts and `dl.espressif.com` returned no route while github.com passed). An updated profile draft adding those two domains is waiting:
 
 ```shell
 nono profile promote claude-code-local
 nono run --profile claude-code-local -- claude
 ```
 
-Verify before anything else: `pio --version` must print the version without a `FileExistsError` traceback, and `ls ~/.platformio` must not say operation not permitted. `/dev` is already granted read and write by the profile's system group, so serial flashing needs nothing extra.
+Verify before anything else: `pio --version` prints cleanly, and `curl -sI https://api.registry.platformio.org/ -o /dev/null -w '%{http_code}'` returns an HTTP status rather than 000. `/dev` is already granted read and write, so serial flashing needs nothing extra.
 
 ## Step 1: build
 
@@ -30,7 +30,7 @@ git status                 # expect branch fork-ota, clean apart from untracked 
 pio run -e display
 ```
 
-First build downloads the ESP32 toolchain; expect several minutes. Success looks like RAM and Flash usage lines and `[SUCCESS]`. If the linker complains about anything in `FlowTrimmer.h`, `Controller.cpp`, `Settings.cpp`, `ShotHistoryPlugin.cpp` or `WebUIPlugin.cpp`, those are the files this work touched; anything else is likely environmental.
+The espressif32 platform is already cached in `~/.platformio`; the previous attempt stopped while installing project libraries (NimBLE-Arduino was first), so the build resumes from dependency download. Success looks like RAM and Flash usage lines and `[SUCCESS]`. If the compiler complains about anything in `FlowTrimmer.h`, `Controller.cpp`, `Settings.cpp`, `ShotHistoryPlugin.cpp` or `WebUIPlugin.cpp`, those are the files this work touched; anything else is likely environmental.
 
 ## Step 2: flash the display
 
@@ -59,7 +59,7 @@ In the web UI:
 2. Profiles and shot history are intact (the flash must not have touched LittleFS).
 3. Pull a shot (a flush profile works for a smoke test, though it records no history; a real short shot is better). The new shot's chart must show the "Pump Duty" series and the flow series labelled "Pump Flow (modelled)". A v6 file confirms the format end to end.
 4. Old shots must still open and chart correctly (v5 files, 26 byte samples).
-5. Settings, System: the update check should now query the fabiopili fork. No update will be offered, since no release tag exists yet; "no update found" against the fork URL is the expected result.
+5. Settings, System: switch the OTA channel from nightly to stable. The display is currently on the nightly channel, but the fork publishes stable tags only, so a nightly-channel check would query a `nightly` release that does not exist on the fork. On stable, the update check follows the fork's `releases/latest`; no update will be offered until the first tag is pushed, so "no update found" is the expected result.
 
 With a Bluetooth scale connected, a real shot should log `vf` (Weight Flow) alongside the modelled flow; the dashboard average flow for that shot then comes from the scale.
 
