@@ -6,6 +6,7 @@
 #include "Settings.h"
 #include "SystemInfo.h"
 #include <WiFi.h>
+#include <display/core/FlowTrimmer.h>
 #include <display/core/ProfileManager.h>
 #include <display/core/process/Process.h>
 #include <mutex>
@@ -189,6 +190,10 @@ class Controller {
     RelayCommand lastRelay{};
     bool lastAlt = false;
     bool controlStateSent = false;
+
+    // Scale-based outer loop for flow-targeted phases (see FlowTrimmer.h).
+    // Reset at process start; only consulted when the flow trim setting is on.
+    FlowTrimmer flowTrimmer;
 
     // BLE connection-interval priority: tight while a process runs, relaxed when
     // idle (frees radio airtime for Wi-Fi). Tracks the last requested state.

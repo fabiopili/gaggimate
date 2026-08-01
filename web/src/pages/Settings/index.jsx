@@ -123,6 +123,7 @@ function buildSubmitFormData(formData, autowakeupSchedules, restart) {
     'homeAssistant',
     'momentaryButtons',
     'delayAdjust',
+    'flowTrimEnabled',
     'clock24hFormat',
     'autowakeupEnabled',
     'smartGrindToggle',
@@ -260,6 +261,7 @@ export function Settings() {
           'homeAssistant',
           'momentaryButtons',
           'delayAdjust',
+          'flowTrimEnabled',
           'clock24hFormat',
           'autowakeupEnabled',
         ].includes(key)

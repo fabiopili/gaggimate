@@ -267,6 +267,8 @@ void Settings::setIntegralGain(float integral_gain) { integralGain.set(integral_
 
 void Settings::setMaxPumpPower(float max_pump_power) { maxPumpPower.set(max_pump_power); }
 
+void Settings::setFlowTrimEnabled(bool flow_trim_enabled) { flowTrimEnabled.set(flow_trim_enabled); }
+
 void Settings::doSave() {
     bool dirty = false;
     for (auto *property : registry) {

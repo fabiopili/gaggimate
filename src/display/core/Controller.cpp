@@ -703,6 +703,7 @@ void Controller::startProcessLocked(Process *process, std::vector<const char *> 
         return;
     }
     processCompleted = false;
+    flowTrimmer.reset();
     this->currentProcess = process;
     applyConnectionPriority(); // shot started -> tight BLE interval
     events.push_back("controller:process:start");
@@ -938,6 +939,19 @@ void Controller::updateControl() {
                 pump.flow = brewProcess->getPumpFlow();
                 targetPressure = brewProcess->getPumpPressure();
                 targetFlow = brewProcess->getPumpFlow();
+                if (!pressureTarget && settings.isFlowTrimEnabled() && !brewProcess->isUtility()) {
+                    // The controller executes flow targets open loop against its
+                    // pump model, so trim the commanded flow toward the scale's
+                    // measured flow (see FlowTrimmer.h). targetFlow keeps the
+                    // profile's requested value so the shot log still separates
+                    // requested (tf) from commanded/modelled (fl).
+                    const bool scaleValid =
+                        currentVolumetricSource == VolumetricMeasurementSource::BLUETOOTH && isBluetoothScaleHealthy();
+                    const float measuredFlow =
+                        scaleValid ? static_cast<float>(brewProcess->volumetricRateCalculator.getRate() * 1000.0) : 0.0f;
+                    const bool pressureCapped = pump.pressure > 0.0f && pressure >= pump.pressure * 0.9f;
+                    pump.flow = flowTrimmer.update(targetFlow, measuredFlow, scaleValid, pressureCapped);
+                }
                 handled = true;
             }
         }
