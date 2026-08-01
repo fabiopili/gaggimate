@@ -1,5 +1,6 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faTrashCan } from '@fortawesome/free-solid-svg-icons/faTrashCan';
+import { parseFloatOr } from '../../utils/number.js';
 
 export const TargetTypes = [
   {
@@ -62,7 +63,7 @@ export function ExtendedPhaseTarget({ onChange, target, index, onRemove }) {
                   onChange={e =>
                     onChange({
                       ...target,
-                      value: parseFloat(e.target.value),
+                      value: parseFloatOr(e.target.value, target.value || 0),
                     })
                   }
                   aria-label={`Target value in ${targetType.unit}`}
