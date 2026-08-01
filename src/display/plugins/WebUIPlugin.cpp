@@ -711,6 +711,7 @@ void WebUIPlugin::handleSettings(AsyncWebServerRequest *request) const {
                 settings->setHomeAssistantTopic(request->arg("haTopic"));
             settings->setMomentaryButtons(request->hasArg("momentaryButtons"));
             settings->setDelayAdjust(request->hasArg("delayAdjust"));
+            settings->setFlowTrimEnabled(request->hasArg("flowTrimEnabled"));
             if (request->hasArg("brewDelay"))
                 settings->setBrewDelay(request->arg("brewDelay").toDouble());
             if (request->hasArg("grindDelay"))
@@ -843,6 +844,7 @@ void WebUIPlugin::handleSettings(AsyncWebServerRequest *request) const {
     doc["brewDelay"] = settings.getBrewDelay();
     doc["grindDelay"] = settings.getGrindDelay();
     doc["delayAdjust"] = settings.isDelayAdjust();
+    doc["flowTrimEnabled"] = settings.isFlowTrimEnabled();
     doc["timezone"] = settings.getTimezone();
     doc["clock24hFormat"] = settings.isClock24hFormat();
     doc["standbyTimeout"] = settings.getStandbyTimeout() / 1000;

@@ -157,6 +157,7 @@ class Settings {
     float getConvergenceGain() const { return convergenceGain.get(); }
     float getIntegralGain() const { return integralGain.get(); }
     float getMaxPumpPower() const { return maxPumpPower.get(); }
+    bool isFlowTrimEnabled() const { return flowTrimEnabled.get(); }
 
     void setTargetSteamTemp(int target_steam_temp);
     void setTargetWaterTemp(int target_water_temp);
@@ -234,6 +235,7 @@ class Settings {
     void setConvergenceGain(float convergenceGain);
     void setIntegralGain(float integralGain);
     void setMaxPumpPower(float maxPumpPower);
+    void setFlowTrimEnabled(bool flow_trim_enabled);
 
   private:
     Preferences preferences;
@@ -315,6 +317,8 @@ class Settings {
     Property<float> convergenceGain{registry, "p_cv", DEFAULT_CONVERGENCE_GAIN};
     Property<float> integralGain{registry, "p_ig", DEFAULT_INTEGRAL_GAIN};
     Property<float> maxPumpPower{registry, "p_mp", 1.0f};
+    // Scale-based flow trim on the display (see FlowTrimmer.h); off until validated
+    Property<bool> flowTrimEnabled{registry, "ft_en", false};
 
     void doSave();
     xTaskHandle taskHandle;

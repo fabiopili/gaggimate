@@ -5,7 +5,11 @@ import Section from '../../../components/Card.jsx';
 import { Tooltip } from '../../../components/Tooltip.jsx';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCrosshairs } from '@fortawesome/free-solid-svg-icons/faCrosshairs';
-import { InputGroupField, SettingsFormField } from '../../../components/SettingsFormField.jsx';
+import {
+  InputGroupField,
+  SettingsFormField,
+  ToggleField,
+} from '../../../components/SettingsFormField.jsx';
 
 const ledControl = computed(() => machine.value.capabilities.ledControl);
 const pressureAvailable = computed(() => machine.value.capabilities.pressure);
@@ -214,6 +218,15 @@ export function MachineTab({ formData, onChange, setField }) {
                 onChange={onChange('steamPumpCutoff')}
               />
             </InputGroupField>
+          )}
+          {pressureAvailable.value && (
+            <ToggleField
+              label='Scale Flow Compensation'
+              htmlFor='flowTrimEnabled'
+              checked={!!formData.flowTrimEnabled}
+              onChange={onChange('flowTrimEnabled')}
+              helpText='Slowly trims flow-phase targets using the Bluetooth scale to compensate for pump model errors. Experimental; requires a connected scale.'
+            />
           )}
           <SettingsFormField label='Alt Relay / SSR2 Function' htmlFor='altRelayFunction' noMargin>
             <select
