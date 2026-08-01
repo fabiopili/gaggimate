@@ -36,8 +36,8 @@ jobs:
           mkdir -p upload/display
           mkdir -p upload/headless
           mkdir -p upload/controller
-          git tag -d nightly
-          git tag -d db
+          git tag -d nightly || true
+          git tag -d db || true
           git describe --tags --dirty > out/version.txt
       - name: Build Web
         run: ./scripts/build_webui.sh
@@ -51,6 +51,8 @@ jobs:
           cp .pio/build/controller/partitions.bin upload/controller/partitions.bin
           cp .pio/build/controller/bootloader.bin upload/controller/bootloader.bin
       - uses: ./.github/actions/upload-firmware
+        # Fork: the private update server secrets are unavailable, do not fail the build.
+        continue-on-error: true
         env:
           UPDATE_SERVER_HOST: ${{ secrets.UPDATE_SERVER_HOST }}
           UPDATE_SERVER_API_KEY: ${{ secrets.UPDATE_SERVER_API_KEY }}
@@ -75,6 +77,8 @@ jobs:
           cp .pio/build/display/partitions.bin upload/display/partitions.bin
           cp .pio/build/display/bootloader.bin upload/display/bootloader.bin
       - uses: ./.github/actions/upload-firmware
+        # Fork: the private update server secrets are unavailable, do not fail the build.
+        continue-on-error: true
         env:
           UPDATE_SERVER_HOST: ${{ secrets.UPDATE_SERVER_HOST }}
           UPDATE_SERVER_API_KEY: ${{ secrets.UPDATE_SERVER_API_KEY }}
@@ -93,6 +97,8 @@ jobs:
           cp .pio/build/display-headless/partitions.bin upload/headless/partitions.bin
           cp .pio/build/display-headless/bootloader.bin upload/headless/bootloader.bin
       - uses: ./.github/actions/upload-firmware
+        # Fork: the private update server secrets are unavailable, do not fail the build.
+        continue-on-error: true
         env:
           UPDATE_SERVER_HOST: ${{ secrets.UPDATE_SERVER_HOST }}
           UPDATE_SERVER_API_KEY: ${{ secrets.UPDATE_SERVER_API_KEY }}
