@@ -83,6 +83,10 @@ class ShotHistoryPlugin : public Plugin {
     float currentBluetoothWeight = 0.0f;
     float lastStableWeight = 0.0f;
     float lastBluetoothWeight = 0.0f;
+    // Highest plausible scale weight seen this shot. The live reading is not
+    // usable for the final weight because the scale re-tares or loses the cup
+    // between brew end and the end of extended recording.
+    float peakBluetoothWeight = 0.0f;
     float currentBluetoothFlow = 0.0f;
     float currentEstimatedWeight = 0.0f;
     float currentPuckResistance = 0.0f;
@@ -99,6 +103,11 @@ class ShotHistoryPlugin : public Plugin {
     uint16_t maxPressureScaled = 0; // max of sample.cp (bar * 10)
     uint32_t flowSumScaled = 0;     // sum of positive sample.fl (ml/s * 100)
     uint32_t positiveFlowCount = 0;
+    // Scale-derived flow aggregates. sample.fl is the controller's model
+    // output, pinned to the setpoint in flow phases, so the scale average is
+    // preferred for the headline avgFlow whenever enough of it exists.
+    uint32_t btFlowSumScaled = 0; // sum of positive sample.vf while live recording (ml/s * 100)
+    uint32_t positiveBtFlowCount = 0;
 
     // Async rebuild state
     bool rebuildInProgress = false;

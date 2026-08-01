@@ -45,7 +45,7 @@ const TREND_METRICS = [
   },
   {
     key: 'avgFlow',
-    label: 'Avg Pump Flow (ml/s)',
+    label: 'Avg Modelled Flow (ml/s)',
     colorVar: '--analyzer-flow-text',
     color: '#63993D',
   },

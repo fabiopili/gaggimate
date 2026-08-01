@@ -1,3 +1,4 @@
+import { faBolt } from '@fortawesome/free-solid-svg-icons/faBolt';
 import { faBullseye } from '@fortawesome/free-solid-svg-icons/faBullseye';
 import { faClock } from '@fortawesome/free-solid-svg-icons/faClock';
 import { faDroplet } from '@fortawesome/free-solid-svg-icons/faDroplet';
@@ -17,6 +18,9 @@ import { readCssColorVar } from './helpers';
 const DISPLAY_LABEL_BY_LABEL = {
   Temp: 'Temperature',
   'Target P': 'Target Pressure',
+  // The pump flow series is the controller's model output, not a measurement;
+  // in flow phases it tracks the commanded value, not reality.
+  'Pump Flow': 'Pump Flow (modelled)',
   'Target F': 'Target Pump Flow',
   'Target T': 'Target Temperature',
 };
@@ -29,6 +33,7 @@ const ICON_BY_LABEL = {
   'Pump Flow': faFaucet,
   'Target F': faBullseye,
   'Puck Flow': faFilter,
+  'Pump Duty': faBolt,
   Weight: faScaleBalanced,
   'Weight Flow': faScaleBalanced,
   [WATER_DRAWN_PHASE_LABEL]: faDroplet,

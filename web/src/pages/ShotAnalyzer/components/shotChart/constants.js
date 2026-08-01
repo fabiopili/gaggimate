@@ -75,6 +75,7 @@ export const CHART_COLOR_FALLBACKS = {
   puckFlow: '#059669',
   weight: '#8B5CF6',
   weightFlow: '#6d28d9',
+  duty: '#D97706',
   phaseLine: 'rgba(107, 114, 128, 0.5)',
   stopLabel: 'rgba(220, 38, 38, 0.85)',
   warning: '#f59e0b',
@@ -88,6 +89,7 @@ export const CHART_COLOR_TOKEN_MAP = {
   puckFlow: '--analyzer-puckflow-anchor',
   weight: '--analyzer-weight-anchor',
   weightFlow: '--analyzer-weightflow-anchor',
+  duty: '--analyzer-duty-anchor',
   phaseLine: '--analyzer-phase-line',
   stopLabel: '--analyzer-stop-label',
   warning: '--analyzer-warning-orange',
@@ -105,6 +107,7 @@ export const LEGEND_THIN_LINE_LABELS = new Set([
   'Puck Flow',
   'Weight',
   'Weight Flow',
+  'Pump Duty',
 ]);
 
 export const TOOLTIP_WATER_LABELS = new Set([WATER_DRAWN_PHASE_LABEL, WATER_DRAWN_TOTAL_LABEL]);
@@ -119,6 +122,7 @@ export const LEGEND_ORDER = [
   'Puck Flow',
   'Weight',
   'Weight Flow',
+  'Pump Duty',
   'Temp',
   'Target T',
 ];
@@ -131,6 +135,7 @@ const TOOLTIP_ORDER = [
   'Pump Flow',
   'Target F',
   'Puck Flow',
+  'Pump Duty',
   'Weight Flow',
   'Weight',
   WATER_DRAWN_PHASE_LABEL,
@@ -150,6 +155,7 @@ export const TOOLTIP_GROUP_BY_LABEL = {
   'Pump Flow': 'flow',
   'Target F': 'flow',
   'Puck Flow': 'flow',
+  'Pump Duty': 'flow',
   Weight: 'weight',
   'Weight Flow': 'weight',
   [WATER_DRAWN_PHASE_LABEL]: 'water',
@@ -170,6 +176,7 @@ export const VISIBILITY_KEY_BY_LABEL = {
   'Puck Flow': 'puckFlow',
   Weight: 'weight',
   'Weight Flow': 'weightFlow',
+  'Pump Duty': 'pumpDuty',
 };
 
 export const INITIAL_VISIBILITY = {
@@ -185,6 +192,8 @@ export const INITIAL_VISIBILITY = {
   puckFlow: true,
   weight: true,
   weightFlow: true,
+  // Diagnostic series (v6+ shots); off by default to keep the chart quiet.
+  pumpDuty: false,
 };
 
 export const UNIT_BY_LABEL = {
@@ -195,6 +204,7 @@ export const UNIT_BY_LABEL = {
   'Pump Flow': 'ml/s',
   'Target F': 'ml/s',
   'Puck Flow': 'ml/s',
+  'Pump Duty': '%',
   Weight: 'g',
   'Weight Flow': 'g/s',
   [WATER_DRAWN_PHASE_LABEL]: 'ml',

@@ -52,6 +52,7 @@ export function buildSeries(samples) {
     temp: [],
     weight: [],
     weightFlow: [],
+    pumpDuty: [],
     targetPressure: [],
     targetFlow: [],
     targetTemp: [],
@@ -68,6 +69,7 @@ export function buildSeries(samples) {
     const temp = toNumberOrNull(getSampleValue(sample, ['ct', 'temperature']));
     const weight = toNumberOrNull(getSampleValue(sample, ['v', 'w', 'weight', 'm']));
     const weightFlow = toNumberOrNull(getSampleValue(sample, ['vf', 'weight_flow']));
+    const pumpDuty = toNumberOrNull(getSampleValue(sample, ['pp', 'pump_power']));
     const targetPressure = toNumberOrNull(getSampleValue(sample, ['tp', 'target_pressure']));
     const targetFlow = toNumberOrNull(getSampleValue(sample, ['tf', 'target_flow']));
     const targetTemp = toNumberOrNull(getSampleValue(sample, ['tt', 'tr', 'target_temperature']));
@@ -78,6 +80,7 @@ export function buildSeries(samples) {
     if (temp !== null) series.temp.push({ x: t, y: temp });
     if (weight !== null && weight >= 0) series.weight.push({ x: t, y: weight });
     if (weightFlow !== null) series.weightFlow.push({ x: t, y: Math.max(0, weightFlow) });
+    if (pumpDuty !== null) series.pumpDuty.push({ x: t, y: pumpDuty });
 
     if (targetPressure !== null) {
       series.targetPressure.push({ x: t, y: Math.min(targetPressure, TARGET_PRESSURE_MAX) });

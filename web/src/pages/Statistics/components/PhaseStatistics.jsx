@@ -132,7 +132,7 @@ function PhaseSection({ phase, hideExitReasons = false }) {
               <tbody>
                 {[
                   { key: 'p', label: 'Pressure', unit: 'bar' },
-                  { key: 'f', label: 'Pump Flow', unit: 'ml/s' },
+                  { key: 'f', label: 'Pump Flow (modelled)', unit: 'ml/s' },
                   { key: 'pf', label: 'Puck Flow', unit: 'ml/s' },
                   { key: 't', label: 'Temp', unit: '\u2103' },
                   { key: 'w', label: 'Weight', unit: 'g' },

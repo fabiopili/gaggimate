@@ -43,6 +43,7 @@ export function createShotChartConfigs({
   showStopBadges = true,
 }) {
   const showWeightSeries = Boolean(hasWeightData && model.hasWeight);
+  const hasDutyData = (model.series.pumpDuty || []).some(point => point.y > 0);
   const neutralAxisTickColor = getNeutralAxisTickColor();
   const mainAxisUnitLabels = [
     { scaleId: 'yMain', label: 'bar / ml/s' },
@@ -200,6 +201,20 @@ export function createShotChartConfigs({
       borderWidth: THIN_LINE_WIDTH,
       tension: 0.2,
       hidden: !hasWeightFlowData || !visibility.weightFlow,
+    },
+    {
+      // Commanded pump duty (v6+ shots), drawn against a hidden 0-100 % scale
+      // so it shows shape without distorting the pressure/flow axis.
+      label: 'Pump Duty',
+      data: model.series.pumpDuty || [],
+      borderColor: colors.duty,
+      backgroundColor: colors.duty,
+      fill: false,
+      yAxisID: 'yDutyOverlay',
+      pointRadius: 0,
+      borderWidth: THIN_LINE_WIDTH,
+      tension: 0.2,
+      hidden: !hasDutyData || !visibility.pumpDuty,
     },
     {
       label: WATER_DRAWN_PHASE_LABEL,
@@ -375,6 +390,14 @@ export function createShotChartConfigs({
             beginAtZero: true,
             // Water values are never drawn directly; this axis only exists so their
             // hidden helper datasets remain valid Chart.js datasets.
+            grid: { display: false },
+            ticks: { display: false },
+          },
+          yDutyOverlay: {
+            type: 'linear',
+            display: false,
+            min: 0,
+            max: 100,
             grid: { display: false },
             ticks: { display: false },
           },

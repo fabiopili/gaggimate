@@ -11,17 +11,17 @@
 //   Header fields set at start; sampleCount & durationMs patched at end.
 // Per-sample record fields are ALWAYS present in fixed order.
 //   tick(uint16_t), tt(uint16_t), ct(uint16_t), tp(uint16_t), cp(uint16_t), fl(int16_t), tf(int16_t), pf(int16_t), vf(int16_t),
-//   v(uint16_t), ev(uint16_t), pr(uint16_t), si(uint16_t)
+//   v(uint16_t), ev(uint16_t), pr(uint16_t), si(uint16_t), pp(uint16_t)
 // Values are stored as scaled integers (see comments per field below).
-// Sample size = 13 fields * 2 bytes = 26 bytes (v5+ format). Phase data moved to header transitions.
+// Sample size = 14 fields * 2 bytes = 28 bytes (v6+ format). Phase data moved to header transitions.
 // Older files may have fewer fields - use fieldsMask to determine layout.
 
 static constexpr uint32_t SHOT_LOG_MAGIC = 0x544F4853; // 'S''H''O''T' little-endian 0x54 0x4F 0x48 0x53
-static constexpr uint8_t SHOT_LOG_VERSION = 5;
+static constexpr uint8_t SHOT_LOG_VERSION = 6;
 static constexpr uint16_t SHOT_LOG_HEADER_SIZE = 512;
 static constexpr uint16_t SHOT_LOG_SAMPLE_INTERVAL_MS = 250; // nominal recording interval
-static constexpr uint32_t SHOT_LOG_FIELDS_MASK_ALL = 0x1FFF; // 13 fields present (removed phase number)
-static constexpr uint32_t SHOT_LOG_SAMPLE_SIZE = 26;
+static constexpr uint32_t SHOT_LOG_FIELDS_MASK_ALL = 0x3FFF; // 14 fields present (v6 added pump power)
+static constexpr uint32_t SHOT_LOG_SAMPLE_SIZE = 28;
 
 // Field bit positions (for future expansion)
 static constexpr uint32_t SHOT_LOG_FIELD_T = 0x0001;  // tick (bit 0)
@@ -37,7 +37,8 @@ static constexpr uint32_t SHOT_LOG_FIELD_V = 0x0200;  // volumetric weight (bit 
 static constexpr uint32_t SHOT_LOG_FIELD_EV = 0x0400; // estimated weight (bit 10)
 static constexpr uint32_t SHOT_LOG_FIELD_PR = 0x0800; // puck resistance (bit 11)
 static constexpr uint32_t SHOT_LOG_FIELD_SI = 0x1000; // system info (bit 12)
-// Bits 13-31 available for future fields
+static constexpr uint32_t SHOT_LOG_FIELD_PP = 0x2000; // pump power / commanded duty (bit 13, v6+)
+// Bits 14-31 available for future fields
 
 // Phase transition structure for version 5+ headers
 // transitionReason was a reserved/padding byte through v5; repurposing it keeps the struct byte-identical,
@@ -102,6 +103,7 @@ struct ShotLogHeader {
 //   v / ev: weight in g * 10 (0.1 g resolution)
 //   pr: puck resistance * 100 (0.01 step, saturates at uint16_t max)
 //   si: system info bit-packed (see SYSTEM_INFO_* constants)
+//   pp: pump duty cycle in % * 10 (0.1 % resolution, controller-reported)
 struct ShotLogSample {
     uint16_t t;  // sample index (0.25 s ticks)
     uint16_t tt; // target temp * 10
@@ -116,6 +118,7 @@ struct ShotLogSample {
     uint16_t ev; // estimated weight * 10
     uint16_t pr; // puck resistance * 100
     uint16_t si; // system info bit-packed
+    uint16_t pp; // pump duty cycle % * 10 (v6+)
 };
 
 static_assert(sizeof(ShotLogHeader) == SHOT_LOG_HEADER_SIZE, "ShotLogHeader size mismatch");

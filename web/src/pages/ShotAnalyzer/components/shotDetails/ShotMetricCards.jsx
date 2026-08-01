@@ -50,11 +50,21 @@ const metricRows = [
   },
   {
     key: 'f',
-    label: 'Avg. Pump Flow',
+    // Model output, not a measurement; pinned to the setpoint in flow phases.
+    label: 'Avg. Pump Flow (modelled)',
     unit: 'ml/s',
     color: 'var(--analyzer-flow-text)',
     icon: faFaucet,
     getValue: total => total?.f?.avg,
+  },
+  {
+    key: 'wf',
+    label: 'Avg. Weight Flow',
+    unit: 'g/s',
+    color: 'var(--analyzer-weightflow-text)',
+    icon: faWeightScale,
+    // NaN when no scale data so the card is filtered out instead of showing 0.
+    getValue: total => (total?.wf?.avg > 0 ? total.wf.avg : NaN),
   },
   {
     key: 'water',
