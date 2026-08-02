@@ -22,15 +22,26 @@ nono run --profile claude-code-local -- claude
 
 Verify before anything else: `pio --version` prints cleanly, and `curl -sI https://api.registry.platformio.org/ -o /dev/null -w '%{http_code}'` returns an HTTP status rather than 000. `/dev` is already granted read and write, so serial flashing needs nothing extra.
 
+Second attempt, 2026-08-02: the registry grant worked and dependency installation completed, but the build then failed one step further on. The nanopb generator needs the Python `protobuf` and `grpcio-tools` packages and pip could not reach pypi.org (`403 Forbidden: host pypi.org:443 is not in the allowlist`), leaving `nanopb_generator.py` with `ModuleNotFoundError: No module named 'google'`. No local workaround exists: no Python on the machine carries `protobuf`, the pip cache has no copy, no generated `.pb.c` or `.pb.h` is tracked in the repo, and the `generator/proto/google/protobuf` directory inside the Nanopb library holds only `.proto` definitions. The profile gained `pypi.org`, `*.pypi.org`, `files.pythonhosted.org` and `*.pythonhosted.org`, which fixed the download but exposed a second, filesystem problem: Homebrew's PlatformIO site-packages is read only, so pip fell back to a user install under `~/Library/Python/3.14`, which the sandbox does not grant, and the packages never landed. The fix needs no further sandbox change. Install them into the already writable PlatformIO tree and point Python at it:
+
+```shell
+PIOPY=/opt/homebrew/Cellar/platformio/6.1.19_2/libexec/bin/python
+$PIOPY -m pip install --target ~/.platformio/pylibs protobuf 'grpcio-tools>=1.43.0'
+```
+
+Every subsequent build then needs `PYTHONPATH=~/.platformio/pylibs` in its environment. This survives across sessions because `~/.platformio` persists, so only the `PYTHONPATH` prefix is required from now on. Note also that `nono why --host pypi.org` wrongly reported ALLOWED while the live proxy refused the connection, so trust a real `curl` over the static check.
+
 ## Step 1: build
 
 ```shell
 cd ~/Projetos/gaggimate
 git status                 # expect branch fork-ota, clean apart from untracked session notes
-pio run -e display
+PYTHONPATH=~/.platformio/pylibs pio run -e display
 ```
 
-The espressif32 platform is already cached in `~/.platformio`; the previous attempt stopped while installing project libraries (NimBLE-Arduino was first), so the build resumes from dependency download. Success looks like RAM and Flash usage lines and `[SUCCESS]`. If the compiler complains about anything in `FlowTrimmer.h`, `Controller.cpp`, `Settings.cpp`, `ShotHistoryPlugin.cpp` or `WebUIPlugin.cpp`, those are the files this work touched; anything else is likely environmental.
+Done on 2026-08-02: `[SUCCESS]` in 58 seconds, RAM 28.5 percent (93240 of 327680 bytes), Flash 66.5 percent (4358685 of 6553600 bytes), zero compiler warnings, and none of the touched files raised a diagnostic. The build reports version `v1.8.1-152-g672d7170-dirty`, the `dirty` suffix coming from this uncommitted handover file.
+
+The espressif32 platform is already cached in `~/.platformio` and project libraries are now installed under `.pio/libdeps/display`, so the build resumes at the nanopb generation step. Success looks like RAM and Flash usage lines and `[SUCCESS]`. If the compiler complains about anything in `FlowTrimmer.h`, `Controller.cpp`, `Settings.cpp`, `ShotHistoryPlugin.cpp` or `WebUIPlugin.cpp`, those are the files this work touched; anything else is likely environmental.
 
 ## Step 2: flash the display
 
@@ -41,6 +52,8 @@ ls /dev/cu.usbmodem*       # expect /dev/cu.usbmodem1101 (see monitor_serial.md)
 pio run -e display -t upload --upload-port /dev/cu.usbmodem1101 \
                    -t monitor --monitor-port /dev/cu.usbmodem1101
 ```
+
+Done on 2026-08-02. The board enumerated as `/dev/cu.usbmodem2101` rather than `1101`, so check the port each time instead of trusting the number. Upload wrote 4359312 bytes in 38.6 seconds at an effective 902.7 kbit/s, the data hash verified, and the board hard reset into the new firmware. Note that `pio device monitor` cannot run from a non-interactive shell, since miniterm calls `termios.tcgetattr` on stdin and dies with `Operation not supported by device`. Read the port with pyserial directly instead.
 
 Hard rules:
 

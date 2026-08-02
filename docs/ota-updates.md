@@ -24,6 +24,7 @@ The display is the only board with network access and it performs all updates. O
 ## Rules that will bite if ignored
 
 - The version must compare strictly greater by semver than what is installed, for the display and the controller independently. Re-publishing the same tag is a no-op; every iteration needs a new tag.
+- The first fork release must be `v1.8.2` or higher. The fork already carries the upstream tags through `v1.8.1`, so that number is taken, and the machine currently runs `v1.8.1-152-g672d7170-dirty`, which semver treats as a prerelease of 1.8.1 and therefore lower than plain `v1.8.1`. Publishing a release from the inherited `v1.8.1` tag would offer the machine a downgrade to upstream code that drops the flow detachment fix.
 - Keep tags clean `vX.Y.Z`. Locally built firmware carries `git describe` output, and suffixes like `-4-gabcdef-dirty` are treated as prereleases with surprising ordering.
 - The fork must stay public; the downloads are unauthenticated.
 - The release asset names are fixed. The standard display build publishes as `display-firmware.bin`, which is what this machine (LilyGo T-RGB) needs. Never rename assets.
@@ -55,7 +56,9 @@ pio run -e display -t upload --upload-port /dev/cu.usbmodem1101
 pio run -e controller -t upload --upload-port /dev/cu.usbmodem1101
 ```
 
-Both boards enumerate with the same USB VID and PID, so pass the port explicitly whenever both are connected. The recorded port on this machine is `/dev/cu.usbmodem1101` (see `monitor_serial.md`).
+Both boards enumerate with the same USB VID and PID, so pass the port explicitly whenever both are connected. The port number depends on which physical socket is used, so read it from `pio device list` each time rather than trusting a recorded value: the 2026-08-02 display flash came up as `/dev/cu.usbmodem2101`, not the `1101` noted previously.
+
+Note this USB path preserves data exactly like OTA does. It writes only the application image, which is why the 2026-08-02 flash kept all eleven recorded shots and every setting. What erases LittleFS is `-t uploadfs` or the web installer, not USB flashing as such.
 
 ## CI notes specific to the fork
 
