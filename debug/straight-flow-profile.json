@@ -1,0 +1,27 @@
+{
+  "label": "Straight flow",
+  "type": "pro",
+  "description": "For testing, should maintain 2g/s at all times.",
+  "temperature": 90,
+  "utility": false,
+  "phases": [
+    {
+      "name": "Pump",
+      "phase": "brew",
+      "valve": 1,
+      "duration": 60,
+      "temperature": 0,
+      "transition": {
+        "type": "instant",
+        "target": "time",
+        "duration": 0,
+        "adaptive": true
+      },
+      "pump": {
+        "target": "flow",
+        "pressure": 0,
+        "flow": 2
+      }
+    }
+  ]
+}
