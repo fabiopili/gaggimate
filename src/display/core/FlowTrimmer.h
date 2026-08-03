@@ -11,9 +11,12 @@
 // same model evaluated forward (see debug/report.md). The Bluetooth scale is
 // the only instrument in the system that observes real flow, so this class
 // integrates the difference between the requested flow and the scale-derived
-// flow and nudges the commanded flow accordingly. It is deliberately slow: the
-// scale observes cup flow with roughly a second of BLE lag plus the smoothing
-// window of the rate fit, so the loop must stay well below that bandwidth.
+// flow and nudges the commanded flow accordingly. The gain is bounded by the
+// measurement rather than by the plant: the scale observes cup flow with
+// roughly a second of BLE lag plus the smoothing window of the rate fit, so
+// crossover has to stay well below that. KI of 0.30 works a 1 g/s error off in
+// a little over three seconds, which fits inside a typical flow phase while
+// keeping crossover near 0.4 rad/s and leaving usable phase margin.
 class FlowTrimmer {
   public:
     // requestedFlow: the profile's requested flow (ml/s), measuredFlow: the
@@ -69,7 +72,7 @@ class FlowTrimmer {
     float getTrim() const { return trim; }
 
   private:
-    static constexpr float KI = 0.10f;                 // integral gain, (ml/s per s) per (g/s) of error
+    static constexpr float KI = 0.30f;                 // integral gain, (ml/s per s) per (g/s) of error
     static constexpr float MIN_MEASURED_FLOW = 0.3f;   // g/s below which cup flow is not established
     static constexpr float MAX_TRIM_DOWN_RATIO = 0.75f; // command never falls below 25 % of the requested flow
     static constexpr float MAX_TRIM_UP_RATIO = 0.5f;    // command never exceeds 150 % of the requested flow
