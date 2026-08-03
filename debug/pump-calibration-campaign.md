@@ -4,6 +4,14 @@ Three validation shots on the flashed flow detachment firmware, spanning the bui
 
 Rig throughout: brew mode with water diverted through the steam wand, its valve standing in for puck resistance, and a Bluetooth scale catching the output so `vf` provides ground truth. Scale Flow Compensation stayed off for every run, so all three are open loop measurements of the pump model itself.
 
+> **Superseded in part, 2026-08-03.** The central conclusion below, that calibration made the
+> model accurate to +2 % under 7 bar, does not hold for real espresso shots and this document
+> overstates it. The rig ran at 56 to 87 % duty because the wand valve had to be fought; real
+> shots sit at 37 to 51 %, where the pump is super proportional and the model under-predicts
+> delivered flow by 30 to 42 %. The calibration also raised the flow loop's gain by 26 %, and the
+> coefficients were reverted to `6.4,3.9` on 2026-08-03. See `first-espresso-shots.md`, which
+> measures the same quantities against real commanded duty rather than inferring them.
+
 ## What changed
 
 The calibration tool was run between shots 13 and 17. It drives a pressure targeted profile holding 1 bar and then 9 bar, computes real flow from the scale weight delta and estimated flow from the integral of the reported model flow, and scales each coefficient by the ratio. Coefficients moved from `6.4,3.9` to `5.592,3.263`, factors of 0.874 and 0.837 respectively.
@@ -18,7 +26,12 @@ The calibration tool was run between shots 13 and 17. It drives a pressure targe
 
 Whole shot over-claim fell from 51 percent on shot 13 to 19 percent on shot 17. Part of that is the calibration and part is a shorter compression phase, since shot 17 started with the valve already cracked and so spent 6.5 seconds building pressure instead of about 15.
 
-## The calibration worked, and the residual is a hardware limit
+## The calibration worked on this rig, and the residual is a hardware limit
+
+The finding in this section is real for the duty range it was measured over and does not generalise.
+Everything below holds at 56 to 87 % duty; see the note above for what happens at the 37 to 51 %
+that real shots use.
+
 
 Splitting shot 17 by pressure separates two very different regimes.
 
