@@ -44,6 +44,9 @@ function normalizeShotSampleForHistoryExport(sample = {}) {
     ev: round2(sample.ev),
     pr: round2(sample.pr),
     systemInfo: sample.systemInfo,
+    // Commanded pump duty (v6+). Absent on older shots, where round2 passes the
+    // undefined through and JSON.stringify drops the key.
+    pp: round2(sample.pp),
     phaseNumber: sample.phaseNumber,
     phaseDisplayNumber: sample.phaseDisplayNumber,
   };
