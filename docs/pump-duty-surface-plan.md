@@ -6,7 +6,7 @@
 
 **Architecture:** Web UI only, no firmware change. A phase whose `pump` field is a bare integer already sets `pumpIsSimple` (`src/display/models/profile.h:296-297`), which routes through `BrewProcess::getPumpValue()` to `PumpControlMode::Power` and straight to `_psm.set()`, so fixed duty is expressible in a generated profile today. One run per duty level: the tool generates and selects a profile holding that duty, the operator diverts brew water to the steam wand with a blind filter and walks pressure across the range with the steam valve, and the tool then reads back the `.slog`, extracts steady-pressure windows, and converts scale weight deltas into flow points. Points accumulate across runs into a surface which is displayed, fitted against a candidate separable model, and exported as JSON.
 
-**Out of scope, deliberately:** writing the surface back to the machine. No firmware model can consume it yet, and choosing the on-device representation is a separate decision that this tool's output should inform. See "Follow-on" at the end.
+**Out of scope, deliberately:** writing the surface back to the machine. No firmware model can consume it as a surface yet, and choosing the on-device representation is a separate decision that this tool's output should inform. See "Consuming the surface" at the end, which sets out three tiers ranging from no code change at all to a full table with a numerical inversion.
 
 **Tech Stack:** Preact, Vite, Vitest (added by Task 1), the existing `ApiService` WebSocket and `/api/history` endpoints.
 
@@ -26,6 +26,26 @@ pressure \ duty     20     30     40     50     60     70     80     90
 ```
 
 A diagonal, not a plane. The duty dimension is unidentifiable from it, exactly as `debug/report.md` predicted for R5. This tool exists to fill the off-diagonal cells by holding duty fixed and varying pressure independently.
+
+## The cheaper alternative, and why it does not replace this
+
+The obvious question is whether the surface could be harvested from steady states in ordinary shots instead of a dedicated tool, which would cost nothing and need no rig. It was tested rather than assumed: the extractor specified in Task 3 and Task 4 was run over every shot recorded to date.
+
+| shots | usable points each | duty reached |
+| --- | --- | --- |
+| 12, 13, 17 (wand rig, operator working the valve) | 2, 2, 4 | 32 % to 89 % |
+| 18, 19, 20, 21 (espresso, no trim or early trim) | **0** | none |
+| 22 (espresso, settled trim) | 2 | 36 % and 37 % |
+
+Two findings, and they point in opposite directions.
+
+The encouraging one is that a working flow trim makes the machine self-instrumenting. Shots 18 to 21 yielded nothing because pressure never held steady for the four seconds a window needs. Shot 22 yielded points precisely because the trim settled it. The better the trim gets, the more the machine calibrates itself as a by-product of making coffee.
+
+The limiting one is that every harvested point lands on the same diagonal: 32 % at 1.3 bar, 36 % at 2.0, 45 % at 3.8, 53 % at 4.0, 58 % at 5.5, 89 % at 10.6. That is not a sampling accident. In a real shot the profile sets flow, the model picks duty from the current pressure, and the puck decides what pressure results, so duty and pressure are locked together by the puck. Nothing in a normal shot varies them independently, so no amount of harvesting can fill the off-diagonal.
+
+The conclusion is that harvesting complements this tool rather than replacing it. It is the right mechanism for keeping the model honest where the machine actually brews, continuously and for free at roughly one to two points per shot, and it is worth building afterwards as an online refinement. Only holding duty fixed while pressure is varied by hand decouples the two, which is what this tool does.
+
+A middle path exists and was rejected on cost: deliberately pulling shots at unusual flow targets would also decouple them, since duty is target over `Q(P)`. That is a calibration campaign made of coffee and pucks rather than water.
 
 ## File Structure
 
@@ -1302,10 +1322,20 @@ Unit tests cover the maths; only the rig proves the rest.
 - [ ] Run the 30 % level. Confirm the pump audibly holds one steady rate for the whole measure phase rather than hunting, which is the check that fixed duty really is fixed.
 - [ ] Confirm at least two usable points come back. If zero, the most likely causes are the scale not being paired or the valve being moved continuously rather than held.
 - [ ] Complete the ladder, then export the JSON and commit it under `debug/`.
-- [ ] Read the separability spread. That number decides the follow-on.
+- [ ] Read the separability spread. That number decides which tier under "Consuming the surface" is worth building.
 
-## Follow-on, explicitly not in this plan
+## Consuming the surface: three tiers, none of them in this plan
 
-Feeding the surface back into the machine needs a firmware model that can consume it, and the right representation depends on what this tool measures. If the separability spread is small, `flow = Q(P) · duty^γ` adds one parameter to `PumpSettings` and the controller inverts it in closed form. If it is large, the model needs a real table with interpolation, and the inversion in `getPumpDutyCycleForFlowRate` becomes a numerical solve. Deciding before measuring would be guessing.
+Feeding the result back into the machine is deliberately out of scope, but the options are worth recording because they differ enormously in cost and because the measurement is what chooses between them.
 
-Note also that the merged-upstream slip term cannot serve here: `Q_net = duty·Q_full + slip·(duty − 1)` is at or below proportional for any partial duty and `getSlip()` clamps non-negative, while every measurement so far says this pump is above proportional at partial duty.
+First a correction to a common assumption. `getAvailableFlow()` is already a **cubic in pressure** with four coefficients, and `setPumpFlowPolyCoeffs` can set all of them; the familiar `6.4,3.9` two-value form is only a convenience wrapper that fills in a straight line. The pressure axis is not the limitation. The limitation is that duty enters solely as a multiplier in `pumpFlowModel(alpha) = duty · Q_geo(P) − slip`, so no surface can live there.
+
+**Tier 0, no code change at all.** Use the surface to choose the best single curve for the duty band the machine actually brews in. This is worth having on its own, because it is exactly the mistake made on 2026-08-02: that calibration fitted a slice at 56 to 87 % duty, where the wand valve had to be fought, and applied it to shots running at 37 to 51 %. It made real shots measurably worse. The surface turns choosing that slice from an accident into a decision, and it works against today's firmware.
+
+**Tier 1, two lines in the controller.** The slip term is a second cubic in pressure and `slipA` through `slipD` already exist in the proto at `gaggimate.proto:124-128`. It is gated twice: the display sends zeros unless addon 7 is present (`Controller.cpp:789-793`), and `getSlip()` clamps non-negative at `PressureController.cpp:104` on the grounds that leakage never is. Remove both gates and the model becomes `flow = duty·Q_full(P) + slip(P)·(duty − 1)`, which with a negative slip is above proportional at partial duty, the shape this pump appears to need. Eight parameters across two cubics, no proto change, no display change beyond sending the coefficients, and the controller image flashes over BLE.
+
+This supersedes an earlier claim in this document that the slip term could not serve. It cannot as written, because of the clamp; with the clamp removed it can. Worth naming honestly that this repurposes a term called leakage, which physically really is non-negative, as a general affine offset. That is mechanically fine and would need explaining if it ever went upstream.
+
+**Tier 2, the full surface.** A table with interpolation, and the closed-form inversion in `getPumpDutyCycleForFlowRate` becomes a numerical solve. Much the largest change, and only justified if the surface is curved enough in duty that an affine fit over the operating range will not do.
+
+The separability spread from `fitSurface` is what decides. A power law `Q(P)·duty^γ` and an affine `a(P)·duty + b(P)` are different shapes, but affine approximates a power law well over the narrow duty band a given profile actually uses, so Tier 1 may well be sufficient even if the surface is formally separable rather than affine. Deciding before measuring would be guessing, which is the whole reason this plan stops at producing the data.
