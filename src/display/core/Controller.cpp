@@ -950,7 +950,7 @@ void Controller::updateControl() {
                     const float measuredFlow =
                         scaleValid ? static_cast<float>(brewProcess->volumetricRateCalculator.getRate() * 1000.0) : 0.0f;
                     const bool pressureCapped = pump.pressure > 0.0f && pressure >= pump.pressure * 0.9f;
-                    pump.flow = flowTrimmer.update(targetFlow, measuredFlow, scaleValid, pressureCapped);
+                    pump.flow = flowTrimmer.update(targetFlow, measuredFlow, pressure, scaleValid, pressureCapped);
                 }
                 handled = true;
             }

@@ -10,20 +10,33 @@
 // a real flow error that nothing corrects, and the flow it reports back is the
 // same model evaluated forward (see debug/report.md). The Bluetooth scale is
 // the only instrument in the system that observes real flow, so this class
-// integrates the difference between the requested flow and the scale-derived
-// flow and nudges the commanded flow accordingly. The gain is bounded by the
-// measurement rather than by the plant: the scale observes cup flow with
-// roughly a second of BLE lag plus the smoothing window of the rate fit, so
-// crossover has to stay well below that. KI of 0.30 works a 1 g/s error off in
-// a little over three seconds, which fits inside a typical flow phase while
-// keeping crossover near 0.4 rad/s and leaving usable phase margin.
+// compares the requested flow against the scale-derived flow and nudges the
+// commanded flow accordingly.
+//
+// Two properties of the measurement shape the design, both learned from shots
+// 20 and 21 (see debug/first-espresso-shots.md and the trim writeup):
+//
+// The scale observes cup flow with roughly a second of BLE lag plus the
+// smoothing window of the rate fit, so loop bandwidth has to stay well below
+// that. The proportional term supplies immediate response and phase lead, the
+// integral removes the residual, and neither is fast enough to chase the lag.
+//
+// More importantly, cup flow only equals pump flow while pressure is steady.
+// During the pressure ramp the pump is filling headspace and compressing the
+// puck, and during the decay the system gives that water back, so in both
+// cases the difference is real hydraulics rather than a model error. Trimming
+// against it is what drove the first attempt to its clamp within five seconds
+// of the phase starting, before any meaningful cup flow existed, so both terms
+// are gated on the pressure being close to steady.
 class FlowTrimmer {
   public:
     // requestedFlow: the profile's requested flow (ml/s), measuredFlow: the
-    // scale-derived flow (g/s), measurementValid: whether the scale is healthy
-    // and the measurement is real, pressureCapped: whether a pressure limit is
-    // currently holding the flow back. Returns the flow command to send.
-    float update(float requestedFlow, float measuredFlow, bool measurementValid, bool pressureCapped) {
+    // scale-derived flow (g/s), pressure: current brew pressure (bar), used
+    // only to decide whether the measurement is meaningful, measurementValid:
+    // whether the scale is healthy and the measurement is real, pressureCapped:
+    // whether a pressure limit is currently holding the flow back. Returns the
+    // flow command to send.
+    float update(float requestedFlow, float measuredFlow, float pressure, bool measurementValid, bool pressureCapped) {
         const unsigned long now = millis();
         float dt = 0.0f;
         if (lastUpdateMs != 0) {
@@ -34,26 +47,46 @@ class FlowTrimmer {
         }
         lastUpdateMs = now;
 
+        // Filtered pressure slew. The raw difference is dominated by sensor
+        // quantisation at this update rate, so it is smoothed before use.
+        if (dt > 0.0f && havePreviousPressure) {
+            const float rawSlew = (pressure - previousPressure) / dt;
+            pressureSlew += (rawSlew - pressureSlew) * std::min(1.0f, dt / SLEW_FILTER_TAU_S);
+        }
+        previousPressure = pressure;
+        havePreviousPressure = true;
+
         if (requestedFlow <= 0.0f) {
             return requestedFlow;
         }
 
-        // Only integrate once cup flow is established; during preinfusion the
-        // scale sees nothing and there is no error signal to act on.
-        if (measurementValid && measuredFlow >= MIN_MEASURED_FLOW && dt > 0.0f) {
-            const float error = requestedFlow - measuredFlow;
+        // Cup flow has to be established before the scale says anything about
+        // delivery, and pressure has to be near steady before cup flow and pump
+        // flow are the same quantity.
+        const bool established = measurementValid && measuredFlow >= MIN_MEASURED_FLOW;
+        const bool settled = std::fabs(pressureSlew) <= MAX_PRESSURE_SLEW_BAR_S;
+        const bool usable = established && settled && dt > 0.0f;
+
+        const float error = requestedFlow - measuredFlow;
+
+        if (usable) {
             // While a pressure limit holds the flow back, raising the command
             // would only wind up against the limiter and discharge as an
             // overshoot when the cap lifts; trimming down remains safe.
             if (error < 0.0f || !pressureCapped) {
-                trim += KI * error * dt;
+                integral += KI * error * dt;
             }
         }
 
-        trim = std::clamp(trim, -MAX_TRIM_DOWN_RATIO * requestedFlow, MAX_TRIM_UP_RATIO * requestedFlow);
+        const float upLimit = MAX_TRIM_UP_RATIO * requestedFlow;
+        const float downLimit = -MAX_TRIM_DOWN_RATIO * requestedFlow;
+        integral = std::clamp(integral, downLimit, upLimit);
 
-        // Exact pass-through until the loop has ever engaged, so running with
-        // the setting on but no scale is bit-identical to running with it off.
+        const float proportional = usable ? KP * error : 0.0f;
+        trim = std::clamp(integral + proportional, downLimit, upLimit);
+
+        // Exact pass-through while the loop has nothing to say, so running with
+        // the setting on but no usable measurement is bit-identical to off.
         if (trim == 0.0f) {
             return requestedFlow;
         }
@@ -65,22 +98,41 @@ class FlowTrimmer {
     }
 
     void reset() {
+        integral = 0.0f;
         trim = 0.0f;
         lastUpdateMs = 0;
+        pressureSlew = 0.0f;
+        previousPressure = 0.0f;
+        havePreviousPressure = false;
     }
 
     float getTrim() const { return trim; }
 
   private:
-    static constexpr float KI = 0.30f;                 // integral gain, (ml/s per s) per (g/s) of error
-    static constexpr float MIN_MEASURED_FLOW = 0.3f;   // g/s below which cup flow is not established
+    static constexpr float KP = 0.40f; // proportional gain, ml/s of command per g/s of error
+    static constexpr float KI = 0.30f; // integral gain, (ml/s per s) per (g/s) of error
+    static constexpr float MIN_MEASURED_FLOW = 0.3f; // g/s below which cup flow is not established
+    // Above this rate of pressure change the system is compressing or giving
+    // water back, so cup flow is not pump flow and the difference is not an
+    // error to correct. 0.30 bar/s blocks about 85 % of the ramp in shots 20
+    // and 21 while leaving roughly half the phase available to integrate.
+    static constexpr float MAX_PRESSURE_SLEW_BAR_S = 0.30f;
+    static constexpr float SLEW_FILTER_TAU_S = 0.5f;    // smooths sensor quantisation out of the slew estimate
     static constexpr float MAX_TRIM_DOWN_RATIO = 0.75f; // command never falls below 25 % of the requested flow
-    static constexpr float MAX_TRIM_UP_RATIO = 0.5f;    // command never exceeds 150 % of the requested flow
-    static constexpr float QUANT_STEP = 0.05f;          // ml/s command resolution
-    static constexpr float MAX_DT_S = 0.5f;             // guards against integration bursts after stalls
+    // The pump model under-predicts delivered flow everywhere measured, by 19
+    // to 42 %, so a settled trim on this machine is always negative. Upward
+    // authority exists only for an unusually free puck, and keeping it small
+    // bounds what any residual wind-up can do.
+    static constexpr float MAX_TRIM_UP_RATIO = 0.10f;
+    static constexpr float QUANT_STEP = 0.05f; // ml/s command resolution
+    static constexpr float MAX_DT_S = 0.5f;    // guards against integration bursts after stalls
 
+    float integral = 0.0f;
     float trim = 0.0f;
     unsigned long lastUpdateMs = 0;
+    float pressureSlew = 0.0f;
+    float previousPressure = 0.0f;
+    bool havePreviousPressure = false;
 };
 
 #endif // FLOWTRIMMER_H
