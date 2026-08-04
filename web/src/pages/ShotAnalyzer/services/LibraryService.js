@@ -11,6 +11,7 @@ import { parseBinaryShot } from '../../ShotHistory/parseBinaryShot';
 import { indexedDBService } from './IndexedDBService';
 import { notesService } from './NotesService';
 import { getProfileDisplayLabel, getShotStorageKey } from '../utils/analyzerUtils';
+import { normalizeShotSampleForExport, round2 } from '../../../utils/shotExport.js';
 
 const HISTORY_NOTES_DEFAULTS = {
   id: '',
@@ -23,34 +24,6 @@ const HISTORY_NOTES_DEFAULTS = {
   balanceTaste: 'balanced',
   notes: '',
 };
-
-function round2(v) {
-  if (v == null || Number.isNaN(v)) return v;
-  return Math.round((v + Number.EPSILON) * 100) / 100;
-}
-
-function normalizeShotSampleForHistoryExport(sample = {}) {
-  return {
-    t: sample.t,
-    tt: round2(sample.tt),
-    ct: round2(sample.ct),
-    tp: round2(sample.tp),
-    cp: round2(sample.cp),
-    fl: round2(sample.fl),
-    tf: round2(sample.tf),
-    pf: round2(sample.pf),
-    vf: round2(sample.vf),
-    v: round2(sample.v),
-    ev: round2(sample.ev),
-    pr: round2(sample.pr),
-    systemInfo: sample.systemInfo,
-    // Commanded pump duty (v6+). Absent on older shots, where round2 passes the
-    // undefined through and JSON.stringify drops the key.
-    pp: round2(sample.pp),
-    phaseNumber: sample.phaseNumber,
-    phaseDisplayNumber: sample.phaseDisplayNumber,
-  };
-}
 
 function normalizeNotesForHistoryExport(notes, shotId) {
   const merged = {
@@ -82,7 +55,7 @@ function buildHistoryLikeShotExport(rawShot, listItem, notes) {
     timestamp: rawShot?.timestamp,
     duration: rawShot?.duration,
     samples: Array.isArray(rawShot?.samples)
-      ? rawShot.samples.map(normalizeShotSampleForHistoryExport)
+      ? rawShot.samples.map(normalizeShotSampleForExport)
       : [],
     volume: listItem?.volume ?? rawShot?.volume ?? null,
     rating: listItem?.rating ?? null,
