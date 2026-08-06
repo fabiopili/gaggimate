@@ -43,3 +43,43 @@ export function filteredSlew(samples, tauS = DEFAULT_OPTIONS.slewFilterTauS) {
   }
   return out;
 }
+
+// The measure phase is located by name rather than by index, because the
+// generated profile is the only thing that names a phase "Measure <duty>".
+export function findMeasurePhaseNumber(shot) {
+  const transitions = shot?.phaseTransitions || [];
+  const match = transitions.find(t => String(t.phaseName || '').startsWith('Measure'));
+  return match ? match.phaseNumber : null;
+}
+
+// Runs of consecutive samples inside `phaseNumber` where pressure is near
+// steady and the pump is running. Each returned window carries its own slice
+// of samples so measureWindow can work on it directly.
+export function extractSteadyWindows(samples, phaseNumber, options = {}) {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const phase = samples.filter(s => s.phaseNumber === phaseNumber);
+  if (phase.length === 0) return [];
+
+  const slew = filteredSlew(phase, opts.slewFilterTauS);
+  const windows = [];
+  let start = -1;
+
+  const close = endIndex => {
+    if (start >= 0 && endIndex - start + 1 >= opts.minWindowSamples) {
+      windows.push({ samples: phase.slice(start, endIndex + 1) });
+    }
+    start = -1;
+  };
+
+  for (let i = 0; i < phase.length; i++) {
+    const steady = Math.abs(slew[i]) <= opts.maxSlewBarPerS && phase[i].pp > 0;
+    if (steady) {
+      if (start < 0) start = i;
+      if (i === phase.length - 1) close(i);
+    } else {
+      close(i - 1);
+    }
+  }
+
+  return windows;
+}
