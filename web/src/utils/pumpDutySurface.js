@@ -11,6 +11,10 @@ export const DEFAULT_OPTIONS = Object.freeze({
   // water back, so cup flow is not pump flow and the sample is not usable.
   maxSlewBarPerS: 0.3,
   slewFilterTauS: 0.5,
+  // Matches MAX_DT_S in FlowTrimmer.h. Capping the divisor makes a gap in the
+  // log read as a steep rate rather than a steady one, so a stretch of time
+  // we know nothing about is refused rather than trusted.
+  maxDtS: 0.5,
   // 16 samples at the 250 ms log interval is 4 s, long enough for a weight
   // delta to rise clear of scale noise.
   minWindowSamples: 16,
@@ -27,7 +31,10 @@ export function filteredSlew(samples, tauS = DEFAULT_OPTIONS.slewFilterTauS) {
   const out = new Array(samples.length).fill(0);
   let slew = 0;
   for (let i = 1; i < samples.length; i++) {
-    const dt = (samples[i].t - samples[i - 1].t) / 1000;
+    let dt = (samples[i].t - samples[i - 1].t) / 1000;
+    if (dt > DEFAULT_OPTIONS.maxDtS) {
+      dt = DEFAULT_OPTIONS.maxDtS;
+    }
     if (dt > 0) {
       const raw = (samples[i].cp - samples[i - 1].cp) / dt;
       slew += (raw - slew) * Math.min(1, dt / tauS);
