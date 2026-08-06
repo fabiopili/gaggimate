@@ -120,3 +120,70 @@ export function measureWindow(window, options = {}) {
     grams,
   };
 }
+
+// Ordinary least squares. Returns null when the x values carry no spread, which
+// would otherwise divide by zero.
+export function fitLine(points) {
+  if (!points || points.length < 2) return null;
+  const mx = mean(points.map(p => p.x));
+  const my = mean(points.map(p => p.y));
+  let sxy = 0;
+  let sxx = 0;
+  for (const p of points) {
+    sxy += (p.x - mx) * (p.y - my);
+    sxx += (p.x - mx) ** 2;
+  }
+  if (sxx === 0) return null;
+  const slope = sxy / sxx;
+  return { slope, intercept: my - slope * mx };
+}
+
+export const SURFACE_FIT_OPTIONS = Object.freeze({
+  referencePressureBar: 6,
+  dutyBinPct: 5,
+  minPointsPerLevel: 3,
+});
+
+// Fits flow against pressure within each duty level, then fits the log of the
+// resulting flow at a reference pressure against the log of duty fraction. The
+// slope of that second fit is gamma in flow = Q(P) * duty^gamma.
+//
+// separabilitySpread is the range of slope/intercept across duty levels. That
+// ratio is duty-independent if and only if the surface really is separable, so
+// a small spread means one exponent can replace the whole table and a large one
+// means it cannot.
+export function fitSurface(points, options = {}) {
+  const opts = { ...SURFACE_FIT_OPTIONS, ...options };
+  const byDuty = new Map();
+  for (const p of points || []) {
+    const key = Math.round(p.duty / opts.dutyBinPct) * opts.dutyBinPct;
+    if (!byDuty.has(key)) byDuty.set(key, []);
+    byDuty.get(key).push(p);
+  }
+
+  const levels = [];
+  for (const [duty, group] of [...byDuty.entries()].sort((a, b) => a[0] - b[0])) {
+    if (group.length < opts.minPointsPerLevel) continue;
+    const line = fitLine(group.map(p => ({ x: p.pressure, y: p.flow })));
+    if (!line) continue;
+    const flowAtReference = line.intercept + line.slope * opts.referencePressureBar;
+    if (!(flowAtReference > 0)) continue;
+    levels.push({ duty, ...line, flowAtReference, count: group.length });
+  }
+
+  if (levels.length < 2) {
+    return { levels, gamma: null, separabilitySpread: null };
+  }
+
+  const logFit = fitLine(
+    levels.map(l => ({ x: Math.log(l.duty / 100), y: Math.log(l.flowAtReference) })),
+  );
+  const ratios = levels.map(l => l.slope / l.intercept);
+
+  return {
+    levels,
+    gamma: logFit ? logFit.slope : null,
+    separabilitySpread: spread(ratios),
+    referencePressureBar: opts.referencePressureBar,
+  };
+}

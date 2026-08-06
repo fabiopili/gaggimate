@@ -5,6 +5,8 @@ import {
   extractSteadyWindows,
   findMeasurePhaseNumber,
   measureWindow,
+  fitLine,
+  fitSurface,
 } from './pumpDutySurface.js';
 
 function ramp(count, startPressure, barPerSecond) {
@@ -126,5 +128,64 @@ describe('measureWindow', () => {
 
   it('rejects a window with too little weight gain, e.g. no scale', () => {
     expect(measureWindow(window20({ gramsPerSample: 0 }))).toBe(null);
+  });
+});
+
+// Synthetic surface from flow = (8 - 0.45 P) * (duty/100)^0.55, which is
+// separable by construction, so the fit must recover gamma and report a
+// near-zero separability spread.
+function syntheticSurface(gamma = 0.55) {
+  const points = [];
+  for (const duty of [30, 45, 60, 75, 90]) {
+    for (const pressure of [2, 4, 6, 8]) {
+      points.push({
+        duty,
+        pressure,
+        flow: (8 - 0.45 * pressure) * Math.pow(duty / 100, gamma),
+      });
+    }
+  }
+  return points;
+}
+
+describe('fitLine', () => {
+  it('recovers slope and intercept', () => {
+    const line = fitLine([
+      { x: 0, y: 1 },
+      { x: 1, y: 3 },
+      { x: 2, y: 5 },
+    ]);
+    expect(line.slope).toBeCloseTo(2, 6);
+    expect(line.intercept).toBeCloseTo(1, 6);
+  });
+
+  it('returns null when there is nothing to fit', () => {
+    expect(fitLine([{ x: 1, y: 1 }])).toBe(null);
+    expect(
+      fitLine([
+        { x: 1, y: 1 },
+        { x: 1, y: 2 },
+      ]),
+    ).toBe(null);
+  });
+});
+
+describe('fitSurface', () => {
+  it('recovers the duty exponent of a separable surface', () => {
+    expect(fitSurface(syntheticSurface(0.55)).gamma).toBeCloseTo(0.55, 2);
+  });
+
+  it('reports a near-zero separability spread for a separable surface', () => {
+    expect(Math.abs(fitSurface(syntheticSurface()).separabilitySpread)).toBeLessThan(0.01);
+  });
+
+  it('returns one level per duty with its own pressure fit', () => {
+    const fit = fitSurface(syntheticSurface());
+    expect(fit.levels.map(l => l.duty)).toEqual([30, 45, 60, 75, 90]);
+  });
+
+  it('returns a null gamma when fewer than two duty levels have data', () => {
+    const single = syntheticSurface().filter(p => p.duty === 45);
+    expect(fitSurface(single).gamma).toBe(null);
   });
 });
