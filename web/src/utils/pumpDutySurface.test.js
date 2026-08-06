@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_OPTIONS, filteredSlew } from './pumpDutySurface.js';
+import {
+  DEFAULT_OPTIONS,
+  filteredSlew,
+  extractSteadyWindows,
+  findMeasurePhaseNumber,
+} from './pumpDutySurface.js';
 
 function ramp(count, startPressure, barPerSecond) {
   return Array.from({ length: count }, (_, i) => ({
@@ -30,5 +35,61 @@ describe('filteredSlew', () => {
     ];
     const slew = filteredSlew(samples);
     expect(slew[1]).toBeGreaterThan(DEFAULT_OPTIONS.maxSlewBarPerS);
+  });
+});
+
+// Builds a phase-2 trace: `hold` steady samples at `pressure`, then a fast
+// `stepSamples`-long climb to `nextPressure`, then `hold` steady again.
+function twoPlateaus(hold, pressure, nextPressure, stepSamples) {
+  const out = [];
+  let t = 0;
+  const push = cp => {
+    out.push({ t, cp, pp: 45, v: out.length * 0.5, phaseNumber: 2 });
+    t += 250;
+  };
+  for (let i = 0; i < hold; i++) push(pressure);
+  for (let i = 1; i <= stepSamples; i++) {
+    push(pressure + ((nextPressure - pressure) * i) / stepSamples);
+  }
+  for (let i = 0; i < hold; i++) push(nextPressure);
+  return out;
+}
+
+describe('extractSteadyWindows', () => {
+  it('finds one window per plateau and excludes the step between them', () => {
+    const windows = extractSteadyWindows(twoPlateaus(24, 3, 6, 4), 2);
+    expect(windows).toHaveLength(2);
+    expect(windows[0].samples.every(s => s.cp === 3)).toBe(true);
+    expect(windows[1].samples.every(s => s.cp === 6)).toBe(true);
+  });
+
+  it('rejects a plateau shorter than minWindowSamples', () => {
+    expect(extractSteadyWindows(twoPlateaus(8, 3, 6, 4), 2)).toHaveLength(0);
+  });
+
+  it('ignores samples belonging to other phases', () => {
+    const trace = twoPlateaus(24, 3, 6, 4).map(s => ({ ...s, phaseNumber: 1 }));
+    expect(extractSteadyWindows(trace, 2)).toHaveLength(0);
+  });
+
+  it('ignores samples with the pump off', () => {
+    const trace = twoPlateaus(24, 3, 6, 4).map(s => ({ ...s, pp: 0 }));
+    expect(extractSteadyWindows(trace, 2)).toHaveLength(0);
+  });
+});
+
+describe('findMeasurePhaseNumber', () => {
+  it('returns the phase number of the transition named Measure', () => {
+    const shot = {
+      phaseTransitions: [
+        { sampleIndex: 0, phaseNumber: 0, phaseName: 'Prepare' },
+        { sampleIndex: 20, phaseNumber: 1, phaseName: 'Measure 45' },
+      ],
+    };
+    expect(findMeasurePhaseNumber(shot)).toBe(1);
+  });
+
+  it('returns null when no measure phase is present', () => {
+    expect(findMeasurePhaseNumber({ phaseTransitions: [] })).toBe(null);
   });
 });
