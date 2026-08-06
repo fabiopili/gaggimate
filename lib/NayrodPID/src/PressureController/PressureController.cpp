@@ -67,7 +67,7 @@ void PressureController::update(ControlMode mode) {
         float pressureOutput = getPumpDutyCycleForPressure();
         *_ctrlOutput = std::min(flowOutput, pressureOutput);
         if (flowOutput < pressureOutput) {
-            _errorIntegral = 0.0f; // Reset error buildup in flow target
+            trackPressureBranch(flowOutput);
         }
     } else if (mode == ControlMode::FLOW) {
         *_ctrlOutput = getPumpDutyCycleForFlowRate();
@@ -237,6 +237,24 @@ void PressureController::virtualScale() {
     }
 }
 
+// While another branch wins the min() arbitration the pressure branch is
+// inactive, but its integral must neither wind up (unbounded output growth
+// below the ceiling) nor be zeroed each cycle (the previous behaviour: a
+// fresh integral left only the raw error term at the first engagement, so
+// the duty collapsed and the loop relax-oscillated against the ceiling).
+// Standard override tracking instead: condition the integral so the raw
+// pressure duty equals the winning duty, which makes the handover continuous
+// in both directions. The raw duty is affine in the integral with slope
+// -_lastKi, so the correction is exact for the cycle it follows.
+void PressureController::trackPressureBranch(float dutyPercent) {
+    if (_lastKi <= 1e-9f) {
+        return;
+    }
+    const float target = dutyPercent / 100.0f;
+    _errorIntegral += (_pumpDutyCycle - target) / _lastKi;
+    _pumpDutyCycle = target;
+}
+
 float PressureController::getPumpDutyCycleForPressure() {
     // COMMAND IS ACTUALLY ZERO: The profile is asking for no pressure (ex: blooming phase)
     // Until otherwise, make the controller ready to start as if it is a new shot coming
@@ -276,6 +294,7 @@ float PressureController::getPumpDutyCycleForPressure() {
     }
     float denominator = fmaxf(1.0f - pressureRatio, 0.0001f); // Clamp to minimum 0.0001
     float Ki = _integralGain / denominator;
+    _lastKi = Ki;
     _errorIntegral += error * _dt;
     float iterm = Ki * _errorIntegral;
 

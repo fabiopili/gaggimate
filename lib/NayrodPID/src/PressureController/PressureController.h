@@ -40,6 +40,7 @@ class PressureController {
 
   private:
     float getPumpDutyCycleForPressure();
+    void trackPressureBranch(float dutyPercent);
     void virtualScale();
     void filterSensor();
     void filterSetpoint(float rawSetpoint);
@@ -88,6 +89,7 @@ class PressureController {
     float _previousPressure = 0.0f; // Previous pressure reading (bar)
     float _errorIntegral = 0.0f;    // Integral of pressure error
     float _pumpDutyCycle = 0.0f;    // Calculated pump duty cycle (0-100%)
+    float _lastKi = 0.0f;           // Ki of the latest pressure-branch evaluation, for override tracking
 
     // === Flow estimation ===
     float _waterThroughPuckFlowRate = 0.0f; // Water through puck flow rate (ml/s)
