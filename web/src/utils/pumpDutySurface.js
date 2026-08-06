@@ -187,3 +187,26 @@ export function fitSurface(points, options = {}) {
     referencePressureBar: opts.referencePressureBar,
   };
 }
+
+// Shares SURFACE_FIT_OPTIONS.dutyBinPct so a level that merges as one bin also
+// fits as one bin. Two separate constants would silently diverge.
+function dutyBin(duty) {
+  const bin = SURFACE_FIT_OPTIONS.dutyBinPct;
+  return Math.round(duty / bin) * bin;
+}
+
+// Re-running a duty level replaces its points rather than adding to them, so a
+// repeated run after a bad sweep supersedes the bad data instead of averaging
+// with it.
+export function mergeSurfacePoints(existing, dutyLevel, freshPoints) {
+  const target = dutyBin(dutyLevel);
+  const kept = (existing || []).filter(p => dutyBin(p.duty) !== target);
+  return [...kept, ...(freshPoints || [])];
+}
+
+export function summariseCoverage(points, dutyLadder) {
+  return dutyLadder.map(duty => ({
+    duty,
+    count: (points || []).filter(p => dutyBin(p.duty) === dutyBin(duty)).length,
+  }));
+}
