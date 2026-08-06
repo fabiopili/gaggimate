@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { parseBinaryShot } from '../pages/ShotHistory/parseBinaryShot.js';
 import {
   DEFAULT_OPTIONS,
   filteredSlew,
@@ -60,6 +63,30 @@ function twoPlateaus(hold, pressure, nextPressure, stepSamples) {
   return out;
 }
 
+// One steady plateau followed by the tail the firmware keeps recording after
+// the run ends. The pump is still coasting and pressure is still steady, but
+// the Bluetooth scale has re-tared so the live weight has collapsed to 0.
+function plateauWithRetaredTail(hold = 24, tail = 3) {
+  const out = [];
+  let t = 0;
+  for (let i = 0; i < hold; i++) {
+    out.push({ t, cp: 6, pp: 45, v: 5 + i * 0.5, phaseNumber: 2 });
+    t += 250;
+  }
+  for (let i = 0; i < tail; i++) {
+    out.push({
+      t,
+      cp: 6,
+      pp: 44,
+      v: 0,
+      phaseNumber: 2,
+      systemInfo: { extendedRecording: true },
+    });
+    t += 250;
+  }
+  return out;
+}
+
 describe('extractSteadyWindows', () => {
   it('finds one window per plateau and excludes the step between them', () => {
     const windows = extractSteadyWindows(twoPlateaus(24, 3, 6, 4), 2);
@@ -80,6 +107,56 @@ describe('extractSteadyWindows', () => {
   it('ignores samples with the pump off', () => {
     const trace = twoPlateaus(24, 3, 6, 4).map(s => ({ ...s, pp: 0 }));
     expect(extractSteadyWindows(trace, 2)).toHaveLength(0);
+  });
+
+  it('keeps the final plateau usable when the scale re-tares after the run', () => {
+    const windows = extractSteadyWindows(plateauWithRetaredTail(24, 3), 2);
+    expect(windows).toHaveLength(1);
+    expect(windows[0].samples).toHaveLength(24);
+    expect(windows[0].samples.some(s => s.v === 0)).toBe(false);
+
+    const point = measureWindow(windows[0]);
+    expect(point).not.toBe(null);
+    // 23 gaps * 0.5 g = 11.5 g over 5.75 s = 2.0 g/s
+    expect(point.flow).toBeCloseTo(2.0, 3);
+  });
+});
+
+// Guards the contract against a real recording rather than a synthetic one.
+// straight-flow-shot-17 is used in preference to the other logs because its
+// final phase is the only one that still yields windows under the default
+// options, so the assertion below actually bites: before the extended-recording
+// tail was excluded, its last window ran from t=52500 to t=60250 and its weight
+// fell from 109.1 g to 0.
+const FIXTURE = fileURLToPath(
+  new URL('../../../debug/straight-flow-shot-17.slog', import.meta.url),
+);
+
+function loadFixture(path) {
+  const buf = readFileSync(path);
+  // Node pools Buffer storage, so the view must be sliced out before it is
+  // handed to a parser that reads the ArrayBuffer from offset zero.
+  return parseBinaryShot(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), 'test');
+}
+
+describe('extractSteadyWindows against a recorded shot', () => {
+  it('never carries the re-tared tail into a window', () => {
+    const shot = loadFixture(FIXTURE);
+    const finalPhase = Math.max(...shot.samples.map(s => s.phaseNumber));
+    const windows = extractSteadyWindows(shot.samples, finalPhase);
+    expect(windows.length).toBeGreaterThan(0);
+
+    for (const w of windows) {
+      const collapsed = w.samples.findIndex(s => s.v === 0);
+      const weighed = w.samples.findIndex(s => s.v > 0);
+      // A zero reading is only ever legitimate before the first real weight.
+      expect(collapsed === -1 || weighed === -1 || collapsed < weighed).toBe(true);
+    }
+
+    // The final window is the one the defect destroyed: its weight delta must
+    // now be a gain rather than the negative value the re-tare produced.
+    const last = windows[windows.length - 1].samples;
+    expect(last[last.length - 1].v - last[0].v).toBeGreaterThan(0);
   });
 });
 

@@ -57,7 +57,21 @@ export function findMeasurePhaseNumber(shot) {
 // of samples so measureWindow can work on it directly.
 export function extractSteadyWindows(samples, phaseNumber, options = {}) {
   const opts = { ...DEFAULT_OPTIONS, ...options };
-  const phase = samples.filter(s => s.phaseNumber === phaseNumber);
+  // The extended-recording tail is dropped here alongside the wrong phase. The
+  // firmware keeps logging for a further 1.75 s after the run ends, and by then
+  // the Bluetooth scale has usually re-tared, so v collapses to 0 while the
+  // pump is still coasting at a plausible duty and pressure. Those samples pass
+  // the steady test below and turn the final window's weight delta negative,
+  // which fails minWeightDeltaG and silently discards the last hold of every
+  // run. ShotHistoryPlugin.cpp skips the same tail when it averages flow.
+  //
+  // Excluding them at this point rather than inside the steady test also keeps
+  // them out of filteredSlew. The flag only ever marks a suffix of the file, so
+  // nothing is spliced together in practice, and were that to change the capped
+  // dt would read the join as a steep rate and refuse it rather than trust it.
+  const phase = samples.filter(
+    s => s.phaseNumber === phaseNumber && !s.systemInfo?.extendedRecording,
+  );
   if (phase.length === 0) return [];
 
   const slew = filteredSlew(phase, opts.slewFilterTauS);
