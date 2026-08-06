@@ -1,11 +1,19 @@
 import { computed } from '@preact/signals';
 import { machine } from '../../services/ApiService.js';
 import { downloadJson } from '../../utils/download.js';
-import { fitSurface, summariseCoverage } from '../../utils/pumpDutySurface.js';
+import { SURFACE_FIT_OPTIONS, fitSurface, summariseCoverage } from '../../utils/pumpDutySurface.js';
 import { DUTY_LADDER, PHASE } from './constants.js';
 import { usePumpDutyCalibration } from './usePumpDutyCalibration.js';
 
 const connected = computed(() => machine.value.connected);
+
+// A duty level contributes nothing to the fit until it has minPointsPerLevel
+// points, so a level that is merely started must not read as finished. The
+// threshold comes from the fit options so the two cannot drift apart.
+function coverageTone(count) {
+  if (count >= SURFACE_FIT_OPTIONS.minPointsPerLevel) return 'btn-success';
+  return count > 0 ? 'btn-warning' : 'btn-outline';
+}
 
 export default function PumpDutyCalibration() {
   const { phase, logs, surface, activeDuty, busy, runDuty, clearSurface } =
@@ -20,7 +28,7 @@ export default function PumpDutyCalibration() {
         Measures delivered flow against both pump duty and pressure, which the two-coefficient pump
         model cannot represent. Fit a blind filter, divert brew water to the steam wand, and put a
         scale under the wand. For each duty level below, start the run and hold the steam valve at
-        roughly 3, 6 and 9 bar for about eight seconds each. Holding steady matters more than
+        roughly 3, 5, 7 and 9 bar for about eight seconds each. Holding steady matters more than
         hitting the exact figure.
       </p>
 
@@ -29,7 +37,7 @@ export default function PumpDutyCalibration() {
           <button
             key={duty}
             type='button'
-            className={`btn btn-sm ${count > 0 ? 'btn-success' : 'btn-outline'}`}
+            className={`btn btn-sm ${coverageTone(count)}`}
             disabled={busy || !connected.value}
             onClick={() => runDuty(duty)}
           >

@@ -156,7 +156,7 @@ export function usePumpDutyCalibration() {
         const preIds = new Set(before.map(e => e.id));
 
         pushLog(
-          'Starting run. Hold the steam valve at roughly 3, then 6, then 9 bar for about eight seconds each.',
+          'Starting run. Hold the steam valve at roughly 3, then 5, then 7, then 9 bar for about eight seconds each.',
           'ok',
         );
         const shotEnd = waitForShotEnd();
