@@ -7,6 +7,8 @@ import {
   measureWindow,
   fitLine,
   fitSurface,
+  mergeSurfacePoints,
+  summariseCoverage,
 } from './pumpDutySurface.js';
 
 function ramp(count, startPressure, barPerSecond) {
@@ -213,5 +215,43 @@ describe('fitSurface', () => {
   it('returns a null gamma when fewer than two duty levels have data', () => {
     const single = syntheticSurface().filter(p => p.duty === 45);
     expect(fitSurface(single).gamma).toBe(null);
+  });
+});
+
+describe('mergeSurfacePoints', () => {
+  it('replaces all points for a duty level rather than appending duplicates', () => {
+    const existing = [
+      { duty: 45, pressure: 3, flow: 2 },
+      { duty: 60, pressure: 3, flow: 3 },
+    ];
+    const merged = mergeSurfacePoints(existing, 45, [{ duty: 45, pressure: 5, flow: 1.8 }]);
+    expect(merged.filter(p => p.duty === 45)).toHaveLength(1);
+    expect(merged.filter(p => p.duty === 60)).toHaveLength(1);
+  });
+
+  it('bins by duty so a measured 44.8 replaces the 45 level', () => {
+    const merged = mergeSurfacePoints([{ duty: 45, pressure: 3, flow: 2 }], 45, [
+      { duty: 44.8, pressure: 5, flow: 1.8 },
+    ]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].pressure).toBe(5);
+  });
+});
+
+describe('summariseCoverage', () => {
+  it('counts points per requested duty level', () => {
+    const coverage = summariseCoverage(
+      [
+        { duty: 45, pressure: 3, flow: 2 },
+        { duty: 45, pressure: 6, flow: 1.8 },
+        { duty: 60, pressure: 3, flow: 3 },
+      ],
+      [30, 45, 60],
+    );
+    expect(coverage).toEqual([
+      { duty: 30, count: 0 },
+      { duty: 45, count: 2 },
+      { duty: 60, count: 1 },
+    ]);
   });
 });
