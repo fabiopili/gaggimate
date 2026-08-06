@@ -62,19 +62,32 @@ class FlowTrimmer {
 
         // Cup flow has to be established before the scale says anything about
         // delivery, and pressure has to be near steady before cup flow and pump
-        // flow are the same quantity.
+        // flow are the same quantity. Steadiness is a fade rather than a gate:
+        // in a shot's tail the decay slew sits right on the threshold, and a
+        // boolean gate toggled the whole proportional term in and out of the
+        // command each sample, which the feed-forward turned into an audible
+        // duty sawtooth (shots 25 and 26). Full authority below the gate keeps
+        // the validated behaviour; authority reaches zero at the upper bound.
         const bool established = measurementValid && measuredFlow >= MIN_MEASURED_FLOW;
-        const bool settled = std::fabs(pressureSlew) <= MAX_PRESSURE_SLEW_BAR_S;
-        const bool usable = established && settled && dt > 0.0f;
+        float authority = 0.0f;
+        if (established && dt > 0.0f) {
+            const float absSlew = std::fabs(pressureSlew);
+            if (absSlew <= MAX_PRESSURE_SLEW_BAR_S) {
+                authority = 1.0f;
+            } else if (absSlew < SLEW_ZERO_AUTHORITY_BAR_S) {
+                authority =
+                    (SLEW_ZERO_AUTHORITY_BAR_S - absSlew) / (SLEW_ZERO_AUTHORITY_BAR_S - MAX_PRESSURE_SLEW_BAR_S);
+            }
+        }
 
         const float error = requestedFlow - measuredFlow;
 
-        if (usable) {
+        if (authority > 0.0f) {
             // While a pressure limit holds the flow back, raising the command
             // would only wind up against the limiter and discharge as an
             // overshoot when the cap lifts; trimming down remains safe.
             if (error < 0.0f || !pressureCapped) {
-                integral += KI * error * dt;
+                integral += KI * error * dt * authority;
             }
         }
 
@@ -82,7 +95,7 @@ class FlowTrimmer {
         const float downLimit = -MAX_TRIM_DOWN_RATIO * requestedFlow;
         integral = std::clamp(integral, downLimit, upLimit);
 
-        const float proportional = usable ? KP * error : 0.0f;
+        const float proportional = KP * error * authority;
         trim = std::clamp(integral + proportional, downLimit, upLimit);
 
         // Exact pass-through while the loop has nothing to say, so running with
@@ -117,6 +130,10 @@ class FlowTrimmer {
     // error to correct. 0.30 bar/s blocks about 85 % of the ramp in shots 20
     // and 21 while leaving roughly half the phase available to integrate.
     static constexpr float MAX_PRESSURE_SLEW_BAR_S = 0.30f;
+    // Authority fades linearly from full at the gate to zero here. Real ramps
+    // run well above 1 bar/s so they stay fully blocked; only the boundary
+    // region where shot tails hover becomes gradual instead of a toggle.
+    static constexpr float SLEW_ZERO_AUTHORITY_BAR_S = 0.45f;
     static constexpr float SLEW_FILTER_TAU_S = 0.5f;    // smooths sensor quantisation out of the slew estimate
     static constexpr float MAX_TRIM_DOWN_RATIO = 0.75f; // command never falls below 25 % of the requested flow
     // The pump model under-predicts delivered flow everywhere measured, by 19
