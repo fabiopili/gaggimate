@@ -148,6 +148,25 @@ function syntheticSurface(gamma = 0.55) {
   return points;
 }
 
+// Synthetic surface from flow = (8 - 0.45 P (duty/45)) * (duty/100)^0.55. The
+// pressure term is scaled by duty, so the pump's sensitivity to pressure
+// grows relative to its intercept as duty rises. slope/intercept is
+// -0.00125 * duty, not a constant, so this surface is not separable and the
+// fit must report a spread that reflects that.
+function nonSeparableSurface() {
+  const points = [];
+  for (const duty of [30, 45, 60, 75, 90]) {
+    for (const pressure of [2, 4, 6, 8]) {
+      points.push({
+        duty,
+        pressure,
+        flow: (8 - 0.45 * pressure * (duty / 45)) * Math.pow(duty / 100, 0.55),
+      });
+    }
+  }
+  return points;
+}
+
 describe('fitLine', () => {
   it('recovers slope and intercept', () => {
     const line = fitLine([
@@ -177,6 +196,13 @@ describe('fitSurface', () => {
 
   it('reports a near-zero separability spread for a separable surface', () => {
     expect(Math.abs(fitSurface(syntheticSurface()).separabilitySpread)).toBeLessThan(0.01);
+  });
+
+  it('reports a large separability spread when the surface is not separable', () => {
+    const separableSpread = Math.abs(fitSurface(syntheticSurface()).separabilitySpread);
+    const nonSeparableSpread = Math.abs(fitSurface(nonSeparableSurface()).separabilitySpread);
+    expect(nonSeparableSpread).toBeGreaterThan(separableSpread * 10);
+    expect(nonSeparableSpread).toBeGreaterThan(0.01);
   });
 
   it('returns one level per duty with its own pressure fit', () => {
