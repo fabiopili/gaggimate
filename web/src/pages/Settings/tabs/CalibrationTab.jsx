@@ -4,6 +4,7 @@ import { OverviewChart } from '../../../components/OverviewChart.jsx';
 import { Spinner } from '../../../components/Spinner.jsx';
 import Section from '../../../components/Card.jsx';
 import PumpFlowCalibration from '../../../components/PumpFlowCalibration/index.jsx';
+import PumpDutyCalibration from '../../../components/PumpDutyCalibration/index.jsx';
 import { SettingsFormField } from '../../../components/SettingsFormField.jsx';
 
 export function CalibrationTab({ formData, onChange }) {
@@ -202,6 +203,11 @@ export function CalibrationTab({ formData, onChange }) {
       {/* Pump Flow Tuning Section */}
       <Section title='Pump Flow Calibration' className='h-full'>
         <PumpFlowCalibration currentCoeffs={formData.pumpModelCoeffs} />
+      </Section>
+
+      {/* Pump Duty Surface Section */}
+      <Section title='Pump Duty Surface Calibration' className='h-full'>
+        <PumpDutyCalibration />
       </Section>
     </div>
   );
