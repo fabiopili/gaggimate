@@ -7,7 +7,8 @@
     "preview": "vite preview",
     "format": "prettier -w .",
     "lint": "eslint src --fix",
-    "lint:check": "eslint src"
+    "lint:check": "eslint src",
+    "test": "vitest run"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.7.4",
@@ -37,7 +38,8 @@
     "prettier": "^3.6.2",
     "prettier-plugin-tailwindcss": "^0.6.14",
     "tailwindcss": "^4.1.11",
-    "vite": "^7.0.5"
+    "vite": "^7.0.5",
+    "vitest": "^3.2.7"
   },
   "eslintConfig": {
     "extends": "preact"
