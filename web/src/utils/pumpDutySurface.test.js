@@ -4,6 +4,7 @@ import {
   filteredSlew,
   extractSteadyWindows,
   findMeasurePhaseNumber,
+  measureWindow,
 } from './pumpDutySurface.js';
 
 function ramp(count, startPressure, barPerSecond) {
@@ -91,5 +92,39 @@ describe('findMeasurePhaseNumber', () => {
 
   it('returns null when no measure phase is present', () => {
     expect(findMeasurePhaseNumber({ phaseTransitions: [] })).toBe(null);
+  });
+});
+
+// 20 samples at 250 ms is 4.75 s between first and last.
+function window20({ cp = 5, pp = 45, gramsPerSample = 0.5 } = {}) {
+  return {
+    samples: Array.from({ length: 20 }, (_, i) => ({
+      t: i * 250,
+      cp: typeof cp === 'function' ? cp(i) : cp,
+      pp: typeof pp === 'function' ? pp(i) : pp,
+      v: i * gramsPerSample,
+    })),
+  };
+}
+
+describe('measureWindow', () => {
+  it('computes flow from the weight delta over the window', () => {
+    const point = measureWindow(window20({ gramsPerSample: 0.5 }));
+    // 19 gaps * 0.5 g = 9.5 g over 4.75 s = 2.0 g/s
+    expect(point.flow).toBeCloseTo(2.0, 3);
+    expect(point.pressure).toBeCloseTo(5, 3);
+    expect(point.duty).toBeCloseTo(45, 3);
+  });
+
+  it('rejects a window whose pressure drifted too far', () => {
+    expect(measureWindow(window20({ cp: i => 5 + i * 0.05 }))).toBe(null);
+  });
+
+  it('rejects a window whose duty was not constant', () => {
+    expect(measureWindow(window20({ pp: i => 45 + i }))).toBe(null);
+  });
+
+  it('rejects a window with too little weight gain, e.g. no scale', () => {
+    expect(measureWindow(window20({ gramsPerSample: 0 }))).toBe(null);
   });
 });

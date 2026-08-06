@@ -83,3 +83,40 @@ export function extractSteadyWindows(samples, phaseNumber, options = {}) {
 
   return windows;
 }
+
+function mean(values) {
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function spread(values) {
+  return Math.max(...values) - Math.min(...values);
+}
+
+// One surface point, or null when the window is not trustworthy. Flow is taken
+// from raw cumulative weight rather than the EMA-smoothed vf, which would lag
+// the window edges and bias short windows.
+export function measureWindow(window, options = {}) {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const samples = window?.samples || [];
+  if (samples.length < 2) return null;
+
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  const seconds = (last.t - first.t) / 1000;
+  const grams = last.v - first.v;
+  if (!(seconds > 0)) return null;
+  if (!(grams >= opts.minWeightDeltaG)) return null;
+
+  const pressures = samples.map(s => s.cp);
+  const duties = samples.map(s => s.pp);
+  if (spread(pressures) > opts.maxPressureSpreadBar) return null;
+  if (spread(duties) > opts.maxDutySpreadPct) return null;
+
+  return {
+    duty: mean(duties),
+    pressure: mean(pressures),
+    flow: grams / seconds,
+    seconds,
+    grams,
+  };
+}
