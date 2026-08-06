@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filteredSlew } from './pumpDutySurface.js';
+import { DEFAULT_OPTIONS, filteredSlew } from './pumpDutySurface.js';
 
 function ramp(count, startPressure, barPerSecond) {
   return Array.from({ length: count }, (_, i) => ({
@@ -21,5 +21,14 @@ describe('filteredSlew', () => {
   it('reads near zero on a flat trace', () => {
     const slew = filteredSlew(ramp(40, 6, 0));
     expect(Math.abs(slew[slew.length - 1])).toBeLessThan(0.01);
+  });
+
+  it('treats a gap in the log as a steep rate rather than a steady one', () => {
+    const samples = [
+      { t: 0, cp: 1 },
+      { t: 5000, cp: 2 },
+    ];
+    const slew = filteredSlew(samples);
+    expect(slew[1]).toBeGreaterThan(DEFAULT_OPTIONS.maxSlewBarPerS);
   });
 });
