@@ -115,7 +115,7 @@ export function MachineTab({ formData, onChange, setField }) {
           <SettingsFormField
             label='Pump Flow Coefficients'
             htmlFor='pumpModelCoeffs'
-            helpText='Enter 2 values (flow at 1 bar, flow at 9 bar)'
+            helpText='Enter 2 values (flow at 1 bar, flow at 9 bar) or 4 cubic coefficients in pressure (a,b,c,d)'
             noMargin
           >
             <input
@@ -126,6 +126,22 @@ export function MachineTab({ formData, onChange, setField }) {
               placeholder='10.205,5.521'
               value={formData.pumpModelCoeffs}
               onChange={onChange('pumpModelCoeffs')}
+            />
+          </SettingsFormField>
+          <SettingsFormField
+            label='Pump Slip Coefficients'
+            htmlFor='pumpSlipCoeffs'
+            helpText='Cubic pressure polynomial (a,b,c,d) for pump internal leakage. Leave at 0,0,0,0 if uncalibrated.'
+            noMargin
+          >
+            <input
+              id='pumpSlipCoeffs'
+              name='pumpSlipCoeffs'
+              type='text'
+              className='input input-bordered w-full'
+              placeholder='0,0,0,0'
+              value={formData.pumpSlipCoeffs}
+              onChange={onChange('pumpSlipCoeffs')}
             />
           </SettingsFormField>
           <InputGroupField
