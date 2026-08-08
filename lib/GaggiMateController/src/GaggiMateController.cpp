@@ -194,9 +194,10 @@ void GaggiMateController::setup() {
             }
             if (this->gearpumpAddon != nullptr) {
                 dimmedPump->setGains(settings.commutationGain, settings.convergenceGain, settings.integralGain);
-                // Slip model is only meaningful for the positive-displacement gear/rotary-vane pump.
-                dimmedPump->setPumpSlipPolyCoeffs(settings.slipA, settings.slipB, settings.slipC, settings.slipD);
             }
+            // Slip is not gear-pump specific: the vibratory pump leaks past its
+            // piston as well, and the display sends zeros when uncalibrated.
+            dimmedPump->setPumpSlipPolyCoeffs(settings.slipA, settings.slipB, settings.slipC, settings.slipD);
         }
         if (this->gearpumpAddon != nullptr) {
             gearpumpAddon->setMaxPower(settings.maxBLDCPower);

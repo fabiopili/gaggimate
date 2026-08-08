@@ -163,13 +163,31 @@ Follow the manual verification checklist at the end of the plan. The single most
 important early check is that the pump audibly holds one steady rate through the
 measure phase rather than hunting, which is what proves fixed duty is really fixed.
 
-## Next steps
+## Campaign outcome (2026-08-08)
 
-1. Run the ladder on the rig, all five duty levels.
-2. Export the JSON and commit it under `debug/`.
-3. Read the separability spread. That number chooses between the three tiers
-   described at the end of the plan, which range from no firmware change to a
-   full table with a numerical inversion.
+The ladder ran in two rig sessions and the result is committed at
+`debug/pump-duty-surface.json`. The duty 90 level comes from the second
+session, which replaced the first sweep per `mergeSurfacePoints` semantics and
+extended coverage from 5.1 to 8.9 bar; where the sessions overlap they agree
+within 3 percent. Separability spread 0.0122 against the separable band of
+under 0.041, gamma 1.115.
+
+The decomposition `flow = duty * Qgeo(P) - slip(P)` fits all seventeen points
+to 2.3 percent rms with `Qgeo(P) = 6.52 - 0.325 P` and `slip(P) = 0.445 -
+0.036 P`. Slip is positive across the operating range, so the pump is mildly
+sub-proportional in duty and the upstream affine slip model is the right shape
+after all; the earlier super-proportional reading came from dynamic shots
+where puck storage flux masqueraded as pump behaviour. Shots 23 and 24 match
+the surface within 7 percent at their peak-pressure moments, where that flux
+vanishes.
+
+Tier 1 was therefore implemented on `fork-ota`: the display now sends the slip
+coefficients for any dimmed pump rather than only when addon 7 is present, the
+controller applies them for any dimmed pump, and the slip field moved from the
+BLDC plugin card to the Machine tab beside the flow coefficients. The measured
+values to enter are `0,0,-0.289,6.074` for the flow coefficients and
+`0,0,-0.036,0.445` for slip. Uncalibrated machines keep the `0,0,0,0` default,
+which leaves behaviour identical.
 
 ## Environment notes
 
