@@ -419,6 +419,13 @@ void ShotHistoryPlugin::endRecording() {
             avgFlowStat = (flowSumScaled / static_cast<float>(positiveFlowCount)) / FLOW_SCALE;
         }
         statsEvent.setFloat("avgFlow", avgFlowStat);
+        // Final weight for the finished screen. The live scale value zeroes
+        // within one sample of brew end (the stream goes quiet after the
+        // stopTimer command; observed on every extended-recording shot since
+        // shot 18), so the UI needs the peak-tracked value the history
+        // record already uses. Utility brews never record and emit 0, which
+        // the UI ignores.
+        statsEvent.setFloat("finalWeight", recording && peakBluetoothWeight > 0.0f ? peakBluetoothWeight : 0.0f);
         pluginManager->trigger(statsEvent);
     }
 
