@@ -132,6 +132,7 @@ void DefaultUI::init() {
     pluginManager->on("controller:process:start", triggerRender);
     pluginManager->on("controller:mode:change", [this](Event const &event) {
         mode = event.getInt("value");
+        shotWeightLatched = false; // leaving the finished-shot context
         switch (mode) {
         case MODE_STANDBY:
             changeScreen(SCREEN_ID_STANDBY_SCREEN);
@@ -152,7 +153,11 @@ void DefaultUI::init() {
             break;
         };
     });
-    pluginManager->on("controller:brew:start", [this](Event const &event) { changeScreen(SCREEN_ID_STATUS_SCREEN); });
+    pluginManager->on("controller:brew:start", [this](Event const &event) {
+        shotWeightLatched = false; // live weight resumes for the new shot
+        changeScreen(SCREEN_ID_STATUS_SCREEN);
+    });
+    pluginManager->on("controller:grind:start", [this](Event const &) { shotWeightLatched = false; });
     pluginManager->on("controller:brew:clear", [this](Event const &event) {
         if (eez_flow_get_current_screen() == SCREEN_ID_STATUS_SCREEN) {
             changeScreen(SCREEN_ID_BREW_SCREEN);
@@ -219,9 +224,20 @@ void DefaultUI::init() {
     pluginManager->on("profiles:profile:unfavorite", [this](Event const &event) { reloadProfiles(); });
     pluginManager->on("profiles:profile:save", [this](Event const &event) { reloadProfiles(); });
     pluginManager->on("controller:volumetric-measurement:bluetooth:change", [=](Event const &event) {
+        if (shotWeightLatched) {
+            return; // holding the finished shot's weight on screen
+        }
         double newWeight = event.getFloat("value");
         if (round(newWeight * 10.0) != round(bluetoothWeight * 10.0)) {
             bluetoothWeight = newWeight;
+            rerender = true;
+        }
+    });
+    pluginManager->on("evt:shot-finished-stats", [=](Event const &event) {
+        const double finalWeight = event.getFloat("finalWeight");
+        if (finalWeight > 0.0) {
+            bluetoothWeight = finalWeight;
+            shotWeightLatched = true;
             rerender = true;
         }
     });

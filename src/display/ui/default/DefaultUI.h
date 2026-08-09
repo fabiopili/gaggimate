@@ -121,6 +121,10 @@ class DefaultUI {
     float currentTemp = 0.0f;
     float targetTemp = 0.0f;
     double bluetoothWeight = 0.0;
+    // The scale stream zeroes right after brew end (stopTimer artefact), so
+    // the finished screen holds the shot's peak weight until the next
+    // activity releases the latch. See ShotHistoryPlugin's finalWeight.
+    bool shotWeightLatched = false;
     BrewScreenState brewScreenState = BrewScreenState::Brew;
 
     // EEZ Structs
