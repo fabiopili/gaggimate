@@ -393,9 +393,26 @@ static void test_transient_spike_does_not_stick_latch() {
     }
 }
 
+// Semantics pin for the display-side substitution reversal: a profile
+// pressure of 0 reaches the controller unchanged, the arbitration never
+// runs, and flow mode is the pure feed-forward at any pressure. Running
+// without a ceiling is the operator's explicit choice, surfaced in the
+// profile editor rather than silently overridden in firmware.
+static void test_zero_ceiling_means_unconstrained_feedforward() {
+    Rig r;
+    r.pressureSetpoint = 0.0f;
+    r.sensorPressure = 9.5f;
+    float out = 0.0f;
+    for (int i = 0; i < 400; ++i) {
+        out = r.update();
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, flowDuty(9.5f), out);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_flow_feedforward_unchanged_below_ceiling);
+    RUN_TEST(test_zero_ceiling_means_unconstrained_feedforward);
     RUN_TEST(test_ceiling_engages_without_duty_collapse);
     RUN_TEST(test_no_relaxation_chatter_against_ceiling);
     RUN_TEST(test_choked_puck_holds_ceiling_quietly);

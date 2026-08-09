@@ -9,6 +9,7 @@ import { faTrashCan } from '@fortawesome/free-solid-svg-icons/faTrashCan';
 import { Tooltip } from '../../components/Tooltip.jsx';
 import { ProfileMainInformation } from './ProfileMainInformation.jsx';
 import { getProfilePhases, removePhaseAt, updatePhaseAt } from './profilePhases.js';
+import { flowPhasePump } from './phaseDefaults.js';
 
 export function StandardProfileForm(props) {
   const { data, onChange, onSave, saving = true, pressureAvailable = false } = props;
@@ -320,14 +321,7 @@ function Phase({ phase, index, onChange, onRemove, pressureAvailable }) {
                 <button
                   type='button'
                   className={`join-item btn btn-sm ${mode === 'flow' ? 'btn-primary' : 'btn-outline'}`}
-                  onClick={() =>
-                    mode !== 'flow' &&
-                    onFieldChange('pump', {
-                      target: 'flow',
-                      pressure: phase.pump?.pressure || 0,
-                      flow: phase.pump?.flow || 0,
-                    })
-                  }
+                  onClick={() => mode !== 'flow' && onFieldChange('pump', flowPhasePump(phase.pump))}
                   aria-pressed={mode === 'flow'}
                   aria-label='Pump flow mode (PRO feature)'
                 >
@@ -391,6 +385,12 @@ function Phase({ phase, index, onChange, onRemove, pressureAvailable }) {
                 <span aria-label='bar'>bar</span>
               </label>
             </div>
+            {mode === 'flow' && pressure === 0 && (
+              <p className='text-warning mt-1 text-xs'>
+                No pressure limit: the pump follows the flow target at any pressure the puck
+                produces.
+              </p>
+            )}
           </div>
           <div className='form-control'>
             <label htmlFor={`phase-${index}-flow`} className='mb-2 block text-sm font-medium'>

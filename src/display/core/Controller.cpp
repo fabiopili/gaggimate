@@ -8,7 +8,6 @@
 #include <ctime>
 #include <display/config.h>
 #include <display/core/constants.h>
-#include <display/core/PumpLimits.h>
 #include <display/core/process/BrewProcess.h>
 #include <display/core/process/GrindProcess.h>
 #include <display/core/process/PumpProcess.h>
@@ -936,13 +935,13 @@ void Controller::updateControl() {
                 const bool pressureTarget = brewProcess->getPumpTarget() == PumpTarget::PUMP_TARGET_PRESSURE;
                 relay.open = brewProcess->isRelayActive();
                 pump.mode = pressureTarget ? PumpControlMode::Pressure : PumpControlMode::Flow;
-                // For flow phases the pressure value is the arbitration
-                // ceiling on the controller; a raw 0 would disable that
-                // arbitration entirely (see PumpLimits.h), so substitute the
-                // default ceiling. targetPressure below keeps the profile's
-                // raw value so the shot log still shows what was requested.
-                pump.pressure = pressureTarget ? brewProcess->getPumpPressure()
-                                               : effectiveFlowPressureLimit(brewProcess->getPumpPressure());
+                // The profile's pressure value passes through raw. For flow
+                // phases it is the arbitration ceiling on the controller and
+                // 0 means no ceiling at all; that is the operator's explicit
+                // choice, made visible in the profile editor, not something
+                // the firmware second-guesses (the v1.8.4 silent 9 bar
+                // substitution confused more than it protected).
+                pump.pressure = brewProcess->getPumpPressure();
                 pump.flow = brewProcess->getPumpFlow();
                 targetPressure = brewProcess->getPumpPressure();
                 targetFlow = brewProcess->getPumpFlow();
