@@ -18,29 +18,36 @@ Two secondary defects deepen the cuts. The anti-windup freeze in `getPumpDutyCyc
 
 This defect exists upstream in a worse form (the integral is zeroed on every flow win rather than conditioned), which is the shot 19 chatter. Reverting to the upstream deviation point would not avoid it.
 
-## Step 1: arbitration latch in the controller
+## Step 1: arbitration latch in the controller (as built)
 
-The one control change. While a flow phase is pressure capped, the pressure loop owns the pump; the flow branch may only reclaim it deliberately, not through noise.
+The one control change. Two defects are fixed together because the second amplifies the first, and both carry a failing-test proof in the native harness.
 
-Mechanism, all inside `PressureController`:
+**Defect 1, integral wind-up at the 0 bound.** The anti-windup in `getPumpDutyCycleForPressure` only froze integration when the raw output magnitude exceeded 100 percent, so with the output railed at 0 and pressure above the setpoint the integral kept accumulating through the virtual band below zero, and recovery after an overpressure took tens of seconds of cut instead of under two. Fixed with conditional integration at both actuator bounds.
 
-- New state: `bool _ceilingLatched`, plus two accumulators for entry and release persistence.
-- Unlatched (both setpoints positive): behave exactly as today. Evaluate both branches, output the minimum, condition the pressure branch while the flow branch wins. This keeps the below-ceiling path bit-identical and the first engagement continuous.
-- Entry: when the pressure branch has won continuously for `ENTRY_PERSIST_S` (0.15 s, about five cycles), set the latch. Persistence filters sensor noise spikes into the latch.
-- Latched: output the pressure branch alone, integral evolving continuously with no conditioning. The flow branch is still evaluated (it is stateless) for the release comparison and for logging.
-- Release: when `flowOutput < pressureOutput - RELEASE_MARGIN_DUTY` (3 duty points) continuously for `RELEASE_HOLD_S` (1.0 s), clear the latch and return to `min()` arbitration. Physically this is the moment the puck passes the full flow target below the ceiling, so the handover step is bounded by the margin and is inaudible.
-- The latch clears in `reset()`, and whenever the arbitration precondition fails (either setpoint not positive), so phase changes into pure pressure or unconstrained flow behave as today.
-- Anti-windup: extend conditional integration to both saturation bounds: freeze the integral when the error pushes further into an already saturated output, at 0 as well as at 100 percent.
+**Defect 2, the conditioning wipe.** The v1.8.4 override tracking conditions the pressure branch's integral to the flow branch's duty on every cycle the flow branch wins. Before first engagement that is exactly right (continuous handover, validated on shots 22 to 24). During an established ceiling hold it is the amplifier of the shots 54/55 saw-tooth: any measurement excursion that lets the feed-forward win a few cycles (a pump-stroke trough at high pressure, a sensor transient) rewrites the integral, erasing the sustainable duty the loop had learned, and re-engagement slams the pump from the feed-forward duty into a hard claw-back. Reproduced in the harness: after a converged 36 percent hold, a 2 bar measurement trough lasting 0.24 s left the old code cutting the pump to 0 for half a second and crashing pressure to 7.7 bar; the fixed code re-engages at the preserved 36 percent, never falls below 24, and resettles within 1.5 s.
 
-Safety: the pressure branch keeps full, immediate down authority in every regime. The latch removes only the feedforward's ability to re-slam duty into an overpressured puck mid-regulation. No overpressure response path gets slower.
+Mechanism, all inside `PressureController`, simpler than first designed:
 
-### Tests (native harness, `test_pressure_arbitration`)
+- The output law never changes: `min(feed-forward, pressure branch)` everywhere, so no handover step exists by construction. The latch changes only what happens to the pressure integral while the feed-forward wins.
+- Unlatched: condition per cycle, exactly as v1.8.4 (first engagement stays continuous).
+- Entry: the pressure branch has strictly won for 0.15 s (about five cycles), filtering noise spikes.
+- Latched: while the feed-forward wins, the pressure integral freezes (this cycle's error integration is undone, unless the evaluation already froze at a saturation bound).
+- Release: pressure more than 1.5 bar below the filtered setpoint continuously for 0.5 s, meaning the ceiling stopped binding (the puck opened, or the phase ceiling rose). The persistence stops deep pulsation troughs from unlatching mid-hold. Release timing is not output-critical because the output law never switches.
+- The latch clears in `reset()` and in every non-arbitration mode branch.
 
-1. Choked puck reproduction: plant with sustainable duty near 38 percent while the flow feedforward at the ceiling is near 63 percent (the shot 54 gap). Old behaviour oscillates; new behaviour must settle within plus or minus 0.15 bar of the setpoint with no duty excursion to 0 after the transient.
-2. Existing cases stay green: below ceiling passthrough unchanged, continuous first engagement, regulation on the shot 25/26 style plant.
-3. Puck opening: ramp conductance until the target flow fits below the ceiling; the latch must release and the output step at release must not exceed the margin plus tolerance.
-4. Saturated integral: pinned overpressure with output railed at 0; the integral must stay bounded and recovery must not undershoot into a cut spiral.
-5. Noise latch: a transient pressure spike must either fail the entry persistence or release within the hold time, with bounded over-delivery.
+The margin-and-hold release machinery from the earlier draft was dropped: with `min()` as the single output law it served no observable purpose.
+
+Safety: the pressure branch keeps full, immediate down authority in every regime, and the profile's flow target remains an upper bound on delivery at all times. The change removes only the mechanism that re-slammed duty into an overpressured puck mid-regulation.
+
+### Tests (native harness, `test_pressure_arbitration`, all passing; the two starred failed first on the old code)
+
+1. *Measurement dip must not re-arm the feed-forward (the wipe, directly).
+2. *Pinned overpressure must not wind into a cut spiral (the 0-bound wind-up).
+3. Choked puck holds the ceiling quietly, with the plant carrying the real machine's stiffness (compliance about 3/P near the ceiling) and PSM actuation quantisation.
+4. Puck erosion resettles without overshoot or saw-tooth.
+5. Puck opening hands back to the feed-forward without a duty step.
+6. A transient spike does not stick the latch.
+7. The three pre-existing cases stay green: below-ceiling passthrough, continuous first engagement, regulation on the shot 25/26 plant.
 
 ### Validation gate
 

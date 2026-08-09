@@ -3,9 +3,6 @@
 #include <algorithm>
 #include <math.h>
 
-// Helper function to return the sign of a float
-inline float sign(float x) { return (x > 0.0f) - (x < 0.0f); }
-
 // Static utility function for first-order low-pass filtering
 void PressureController::applyLowPassFilter(float *filteredValue, float rawValue, float cutoffFreq, float dt) {
     if (filteredValue == nullptr)
@@ -61,8 +58,13 @@ void PressureController::update(ControlMode mode) {
     filterSetpoint(*_rawPressureSetpoint);
     filterSensor();
 
-    if ((mode == ControlMode::FLOW || mode == ControlMode::PRESSURE) && *_rawPressureSetpoint > 0.0f &&
-        *_rawFlowSetpoint > 0.0f) {
+    const bool arbitration = *_rawPressureSetpoint > 0.0f && *_rawFlowSetpoint > 0.0f;
+    if (mode == ControlMode::FLOW && arbitration) {
+        updateFlowArbitration();
+    } else if (mode == ControlMode::PRESSURE && arbitration) {
+        // Pressure phase with a flow limit: unchanged min() arbitration
+        // with per-cycle override tracking.
+        resetCeilingLatch();
         float flowOutput = getPumpDutyCycleForFlowRate();
         float pressureOutput = getPumpDutyCycleForPressure();
         *_ctrlOutput = std::min(flowOutput, pressureOutput);
@@ -70,11 +72,73 @@ void PressureController::update(ControlMode mode) {
             trackPressureBranch(flowOutput);
         }
     } else if (mode == ControlMode::FLOW) {
+        resetCeilingLatch();
         *_ctrlOutput = getPumpDutyCycleForFlowRate();
     } else if (mode == ControlMode::PRESSURE) {
+        resetCeilingLatch();
         *_ctrlOutput = getPumpDutyCycleForPressure();
+    } else {
+        resetCeilingLatch();
     }
     virtualScale();
+}
+
+// Flow phase with a pressure ceiling. The output law is always
+// min(feed-forward, pressure branch); what the latch changes is only the
+// treatment of the pressure branch's integral while the feed-forward wins.
+//
+// Before the ceiling has genuinely engaged, the integral is conditioned
+// each cycle so the first engagement is continuous (the v1.8.4 override
+// tracking, validated on shots 22 to 24). Once the pressure branch has
+// held the pump for _latchEntryPersistS, that same conditioning becomes
+// the defect: any measurement excursion that lets the feed-forward win a
+// few cycles (a pump-stroke trough at high pressure, a sensor transient)
+// rewrites the integral to the feed-forward duty, and the re-engagement
+// slams the pump from the feed-forward value into a hard claw-back: the
+// shots 54/55 saw-tooth, with tops at exactly the feed-forward duty. So
+// once latched, the integral freezes while the feed-forward wins.
+//
+// The latch drops only when the pressure has sat well below the setpoint
+// for a while, meaning the ceiling stopped binding (the puck opened, or a
+// phase raised the ceiling). The release timing is not output-critical
+// because the output law never switches.
+void PressureController::updateFlowArbitration() {
+    const float flowOutput = getPumpDutyCycleForFlowRate();
+    const float pressureOutput = getPumpDutyCycleForPressure();
+    *_ctrlOutput = std::min(flowOutput, pressureOutput);
+
+    if (_filteredPressureSensor < _filteredSetpoint - _latchReleaseGapBar) {
+        _latchReleaseGapS += _dt;
+        if (_latchReleaseGapS >= _latchReleaseGapHoldS) {
+            resetCeilingLatch();
+        }
+    } else {
+        _latchReleaseGapS = 0.0f;
+    }
+
+    if (flowOutput < pressureOutput) {
+        _latchEntryS = 0.0f;
+        if (!_ceilingLatched) {
+            trackPressureBranch(flowOutput);
+        } else if (!_integrationFrozen) {
+            // Freeze: undo this cycle's error integration, unless the
+            // pressure evaluation already froze it at a saturation bound.
+            _errorIntegral -= (_filteredPressureSensor - _filteredSetpoint) * _dt;
+        }
+    } else if (pressureOutput < flowOutput) {
+        _latchEntryS += _dt;
+        if (_latchEntryS >= _latchEntryPersistS) {
+            _ceilingLatched = true;
+        }
+    } else {
+        _latchEntryS = 0.0f;
+    }
+}
+
+void PressureController::resetCeilingLatch() {
+    _ceilingLatched = false;
+    _latchEntryS = 0.0f;
+    _latchReleaseGapS = 0.0f;
 }
 
 float PressureController::pumpFlowModel(float alpha) const {
@@ -261,6 +325,7 @@ float PressureController::getPumpDutyCycleForPressure() {
     if (*_rawPressureSetpoint < 0.2f) {
         initSetpointFilter();
         _errorIntegral = 0.0f;
+        _integrationFrozen = true; // nothing accumulated this cycle
         *_ctrlOutput = 0.0f;
         _previousPressure = 0.0f;
         return 0.0f;
@@ -295,6 +360,7 @@ float PressureController::getPumpDutyCycleForPressure() {
     float denominator = fmaxf(1.0f - pressureRatio, 0.0001f); // Clamp to minimum 0.0001
     float Ki = _integralGain / denominator;
     _lastKi = Ki;
+    _integrationFrozen = false;
     _errorIntegral += error * _dt;
     float iterm = Ki * _errorIntegral;
 
@@ -306,10 +372,16 @@ float PressureController::getPumpDutyCycleForPressure() {
     float K = _commutationGain / denominator * Qa / Ceq;
     _pumpDutyCycle = Ceq / Qa * (-_convergenceGain * error - K * sat_s) - iterm;
 
-    // Anti-windup
-    if ((sign(error) == -sign(_pumpDutyCycle)) && (fabs(_pumpDutyCycle) > 1.0f)) {
+    // Conditional integration at both actuator bounds: integrating further
+    // into a saturated output is wind-up. The previous check only caught
+    // magnitudes beyond 100 percent, so with the output railed at 0 and the
+    // pressure above the setpoint the integral kept accumulating through
+    // the virtual band below zero, and the recovery undershot into a long
+    // cut (shots 54/55).
+    if ((error > 0.0f && _pumpDutyCycle < 0.0f) || (error < 0.0f && _pumpDutyCycle > 1.0f)) {
         _errorIntegral -= error * _dt;
         iterm = Ki * _errorIntegral;
+        _integrationFrozen = true;
     }
 
     _pumpDutyCycle = Ceq / Qa * (-_convergenceGain * error - K * sat_s) - iterm;
@@ -318,6 +390,7 @@ float PressureController::getPumpDutyCycleForPressure() {
 
 void PressureController::reset() {
     initSetpointFilter(_filteredPressureSensor);
+    resetCeilingLatch();
     _errorIntegral = 0.0f;
     _pumpFlowRate = 0.0f;
     _puckSaturationVolume = 0.0f;
