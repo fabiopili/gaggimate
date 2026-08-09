@@ -40,6 +40,8 @@ class PressureController {
 
   private:
     float getPumpDutyCycleForPressure();
+    void updateFlowArbitration();
+    void resetCeilingLatch();
     void trackPressureBranch(float dutyPercent);
     void virtualScale();
     void filterSensor();
@@ -90,6 +92,22 @@ class PressureController {
     float _errorIntegral = 0.0f;    // Integral of pressure error
     float _pumpDutyCycle = 0.0f;    // Calculated pump duty cycle (0-100%)
     float _lastKi = 0.0f;           // Ki of the latest pressure-branch evaluation, for override tracking
+
+    // === Ceiling latch (flow mode) ===
+    // Once the pressure branch has genuinely held the ceiling, its integral
+    // is the loop's memory of the sustainable duty and must survive
+    // transient flow-branch wins. Conditioning it on every such cycle
+    // re-armed the feed-forward on each measurement excursion and
+    // relax-oscillated choked shots (54/55): duty saw-toothing between the
+    // feed-forward and the claw-back, with full cuts. While latched the
+    // inactive branch's integral freezes instead.
+    bool _ceilingLatched = false;
+    float _latchEntryS = 0.0f;      // continuous strict pressure-branch wins so far
+    float _latchReleaseGapS = 0.0f; // continuous time spent far below the setpoint
+    const float _latchEntryPersistS = 0.15f; // wins required to latch
+    const float _latchReleaseGapBar = 1.5f;  // "far below the setpoint" distance
+    const float _latchReleaseGapHoldS = 0.5f; // gap must persist this long to unlatch
+    bool _integrationFrozen = false; // last pressure evaluation froze its integral (anti-windup)
 
     // === Flow estimation ===
     float _waterThroughPuckFlowRate = 0.0f; // Water through puck flow rate (ml/s)
