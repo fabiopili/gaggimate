@@ -1,6 +1,7 @@
 import { ExtendedPhaseTarget, TargetTypes } from './ExtendedPhaseTarget.jsx';
 import { isNumber } from 'chart.js/helpers';
 import { parseFloatOr } from '../../utils/number.js';
+import { flowPhasePump } from './phaseDefaults.js';
 import { useCallback } from 'preact/hooks';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus } from '@fortawesome/free-solid-svg-icons/faPlus';
@@ -214,14 +215,7 @@ export function ExtendedPhase({ phase, index, onChange, onRemove, pressureAvaila
                 <button
                   type='button'
                   className={`join-item btn btn-sm ${mode === 'flow' ? 'btn-primary' : 'btn-outline'}`}
-                  onClick={() =>
-                    mode !== 'flow' &&
-                    onFieldChange('pump', {
-                      target: 'flow',
-                      pressure: Math.max(phase.pump.pressure || 0, 0),
-                      flow: Math.max(phase.pump?.flow || 0, 0),
-                    })
-                  }
+                  onClick={() => mode !== 'flow' && onFieldChange('pump', flowPhasePump(phase.pump))}
                   aria-pressed={mode === 'flow'}
                   aria-label='Pump flow mode'
                 >
@@ -298,7 +292,7 @@ export function ExtendedPhase({ phase, index, onChange, onRemove, pressureAvaila
             <div className='form-control'>
               <label htmlFor={`phase-${index}-pressure`} className='mb-2 block text-sm font-medium'>
                 {mode === 'pressure' ? 'Target' : 'Maximum'} Pressure{' '}
-                {mode === 'flow' && '(0 = Ignore)'}
+                {mode === 'flow' && '(0 = no limit)'}
               </label>
               <div className='input-group'>
                 <label htmlFor={`phase-${index}-pressure`} className='input w-full'>
@@ -322,6 +316,12 @@ export function ExtendedPhase({ phase, index, onChange, onRemove, pressureAvaila
                   <span aria-label='bar'>bar</span>
                 </label>
               </div>
+              {mode === 'flow' && pressure === 0 && (
+                <p className='text-warning mt-1 text-xs'>
+                  No pressure limit: the pump follows the flow target at any pressure the puck
+                  produces.
+                </p>
+              )}
             </div>
           )}
           {mode !== 'hold-flow' && (
