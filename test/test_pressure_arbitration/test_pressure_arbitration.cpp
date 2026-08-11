@@ -334,6 +334,57 @@ static void test_puck_erosion_does_not_rearm_feedforward() {
     TEST_ASSERT_TRUE_MESSAGE(tail.maxOut - tail.minOut < 6.0f, "duty must settle after erosion, not saw-tooth");
 }
 
+// The shots 58/59 regime: a choked hold whose conductance fluctuates
+// across the choke boundary at roughly one-second period (the real pucks'
+// pr trace swung 3 to 134 and back while channelling). Every sag a few
+// tenths below the setpoint used to hand the pump back towards the full
+// feed-forward, whichever branch won it: min() re-armed the flow branch,
+// and the pressure branch's own proportional path chased the negative
+// error just as hard. Into the re-tightening puck that duty re-slammed the
+// ceiling within a few cycles, and the claw-back plus the next sag kept
+// the cycle going audibly (duty 10 to 58 with near-zero cuts in the real
+// logs). While latched, the arbitrated output must instead stay pinned
+// near the remembered holding duty, with headroom that only opens as the
+// pressure genuinely leaves the ceiling band.
+static void test_fluctuating_choke_does_not_rearm_feedforward() {
+    Rig r;
+    const float compliance = 0.35f; // stiff near the ceiling, see above
+    float pressure = 1.0f;
+    r.sensorPressure = pressure;
+    float psmCarry = 0.0f;
+    const float psmStep = 100.0f / 3.6f;
+    bool engaged = false;
+    WindowStats w;
+    const int totalCycles = 3000;  // 90 s
+    const int windowCycles = 1600; // final 48 s, over 20 fluctuation periods
+    for (int i = 0; i < totalCycles; ++i) {
+        // 1.5 s tight (equilibrium for the target at 15.4 bar), 0.6 s open
+        // (equilibrium 8.6 bar, the ceiling momentarily stops binding),
+        // deterministic, straddling the choke boundary as the real pucks did.
+        const float resistance = ((i % 70) < 50) ? 6.4f : 3.6f;
+        float out = r.update();
+        float want = out + psmCarry;
+        float applied = std::clamp(psmStep * std::floor(want / psmStep + 0.5f), 0.0f, 100.0f);
+        psmCarry = want - applied;
+        float pumpFlow = applied / 100.0f * availableFlow(pressure);
+        float puckFlow = pressure / resistance;
+        pressure = std::max(0.0f, pressure + (pumpFlow - puckFlow) / compliance * kDt);
+        // Aliased pump-stroke ripple on the sensor, as the real machine has.
+        r.sensorPressure = pressure + 0.15f * std::sin(2.0f * float(M_PI) * 7.3f * float(i) * kDt);
+        if (pressure >= 8.9f) {
+            engaged = true;
+        }
+        if (i >= totalCycles - windowCycles) {
+            w.add(out, pressure);
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(engaged, "plant must reach the ceiling");
+    TEST_ASSERT_TRUE_MESSAGE(w.maxOut < 53.0f, "sags must not re-arm the feed-forward duty into the choke");
+    TEST_ASSERT_TRUE_MESSAGE(w.maxOut - w.minOut < 20.0f, "duty must not surge against a fluctuating choke");
+    TEST_ASSERT_TRUE_MESSAGE(w.minOut > 20.0f, "duty must never cut towards zero at the ceiling");
+    TEST_ASSERT_TRUE_MESSAGE(w.maxP < 9.45f, "re-tightening must not overshoot the ceiling");
+}
+
 // With the output railed at 0 under pinned overpressure the integral must
 // freeze instead of winding on through the virtual band below zero; when
 // the overpressure clears the pump must come back promptly rather than
@@ -418,6 +469,7 @@ int main() {
     RUN_TEST(test_choked_puck_holds_ceiling_quietly);
     RUN_TEST(test_measurement_dip_does_not_rearm_feedforward);
     RUN_TEST(test_puck_erosion_does_not_rearm_feedforward);
+    RUN_TEST(test_fluctuating_choke_does_not_rearm_feedforward);
     RUN_TEST(test_latch_releases_when_puck_opens);
     RUN_TEST(test_no_cut_spiral_after_pinned_overpressure);
     RUN_TEST(test_transient_spike_does_not_stick_latch);

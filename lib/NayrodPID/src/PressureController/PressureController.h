@@ -107,6 +107,16 @@ class PressureController {
     const float _latchEntryPersistS = 0.15f; // wins required to latch
     const float _latchReleaseGapBar = 1.5f;  // "far below the setpoint" distance
     const float _latchReleaseGapHoldS = 0.5f; // gap must persist this long to unlatch
+    // While latched, a flow-branch win may exceed the remembered winning
+    // duty only by margin + fade * (setpoint - pressure): tight at the
+    // ceiling, transparent by the release gap (shots 58/59 handback cycle).
+    float _latchWinningDuty = 0.0f;                    // low-passed duty of settled near-setpoint wins
+    const float _latchHandbackMarginDuty = 5.0f;       // headroom at the setpoint (% duty)
+    const float _latchHandbackFadePerBarSq = 4.0f;     // headroom growth per bar-below-setpoint squared
+    const float _latchWinningDutyLearnBar = 0.3f;      // memory learns only this close to the setpoint...
+    const float _latchWinningDutyLearnBarPerS = 0.75f; // ...and only while the pressure is settled
+    const float _latchWinningDutyFilterHz = 0.3f;      // winning-duty memory bandwidth
+    const float _latchWinningDutyCreepPerS = 3.0f;     // memory rise rate while the cap pins a sag (%/s)
     bool _integrationFrozen = false; // last pressure evaluation froze its integral (anti-windup)
 
     // === Flow estimation ===

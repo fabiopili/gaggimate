@@ -101,11 +101,33 @@ void PressureController::update(ControlMode mode) {
 // The latch drops only when the pressure has sat well below the setpoint
 // for a while, meaning the ceiling stopped binding (the puck opened, or a
 // phase raised the ceiling). The release timing is not output-critical
-// because the output law never switches.
+// because far below the setpoint the handback cap has already faded out.
+//
+// Handback cap (shots 58/59): freezing the integral is not enough when the
+// puck's conductance fluctuates through the hold. Every sag a few tenths
+// below the setpoint raises both branches' raw duty towards the full
+// feed-forward (min() hands the flow branch the pump, and the pressure
+// branch's own proportional path chases the negative error just as hard),
+// and on a puck that cannot pass the flow target that duty overdrives the
+// ceiling within a few cycles; the claw-back and the next sag repeat it at
+// about a one-second period, audibly. So while latched the arbitrated
+// output, whoever wins it, may exceed the remembered holding duty only by
+// a headroom that grows with the distance below the setpoint. Near the
+// ceiling the hold stays put instead of chasing brief sags, and as the
+// pressure recovers the shrinking headroom winds the duty back down before
+// the error terms react. The fade makes the cap exactly transparent in the
+// cases the latch release exists for: by the release gap it exceeds any
+// feed-forward, so a puck that genuinely opens walks the pressure down
+// through the fade and out of the latch with no step in the output.
+//
+// The memory itself must hold the duty that HOLDS the ceiling, so it
+// learns only from pressure-branch wins near the setpoint: sag chasing
+// (below the band) and claw-backs or pinned cuts (above it) both freeze
+// it, and the low-pass keeps single-cycle transients from moving it.
 void PressureController::updateFlowArbitration() {
     const float flowOutput = getPumpDutyCycleForFlowRate();
     const float pressureOutput = getPumpDutyCycleForPressure();
-    *_ctrlOutput = std::min(flowOutput, pressureOutput);
+    float output = std::min(flowOutput, pressureOutput);
 
     if (_filteredPressureSensor < _filteredSetpoint - _latchReleaseGapBar) {
         _latchReleaseGapS += _dt;
@@ -130,9 +152,35 @@ void PressureController::updateFlowArbitration() {
         if (_latchEntryS >= _latchEntryPersistS) {
             _ceilingLatched = true;
         }
+        if (!_ceilingLatched) {
+            _latchWinningDuty = pressureOutput;
+        } else if (fabsf(_filteredPressureSensor - _filteredSetpoint) < _latchWinningDutyLearnBar &&
+                   fabsf(_filteredPressureDerivative) < _latchWinningDutyLearnBarPerS) {
+            applyLowPassFilter(&_latchWinningDuty, pressureOutput, _latchWinningDutyFilterHz, _dt);
+        }
     } else {
         _latchEntryS = 0.0f;
     }
+
+    if (_ceilingLatched) {
+        // Quadratic fade: within the sag band the headroom stays tight, by
+        // a couple of bars below the setpoint it exceeds any feed-forward.
+        const float gap = std::max(0.0f, _filteredSetpoint - _filteredPressureSensor);
+        const float cap = _latchWinningDuty + _latchHandbackMarginDuty + _latchHandbackFadePerBarSq * gap * gap;
+        if (cap < output) {
+            output = cap;
+            // The cap binding while the pressure sits below the setpoint
+            // means the sustainable duty has risen above the memory (the
+            // puck eroded more open but is still choked), so the memory
+            // creeps up until the hold re-reaches the ceiling and settled
+            // learning takes over again.
+            if (gap > _latchWinningDutyLearnBar) {
+                _latchWinningDuty += _latchWinningDutyCreepPerS * _dt;
+            }
+        }
+    }
+
+    *_ctrlOutput = output;
 }
 
 void PressureController::resetCeilingLatch() {
