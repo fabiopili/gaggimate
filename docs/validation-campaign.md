@@ -42,7 +42,7 @@ Gates:
 - In the editor, switching a phase to flow shows 9 bar; typing 0 shows the no-limit warning; the value survives save and reload.
 - Optional, deliberate: one capless shot on a permissive puck to confirm the pass-through, watching the pressure by eye.
 
-### v1.8.9, controller: latched handback cap (the next OTA)
+### v1.8.9, controller: latched handback cap (pushed 2026-08-11 evening)
 
 Contents: while the ceiling latch is engaged, the arbitrated output is capped at the remembered holding duty plus a headroom that opens quadratically with the distance below the setpoint. The memory learns only from settled pressure-branch wins near the setpoint, freezes through sags and claw-backs, and creeps upward while the cap pins a sag so an eroding-but-still-choked puck is re-held at the ceiling rather than deadlocked below it. Discriminating test: a choked toy puck whose conductance fluctuates across the choke boundary at one-second period, the shots 58/59 regime, which the v1.8.7/v1.8.8 controller fails. Controller component must be updated; display is unchanged.
 
@@ -50,6 +50,10 @@ Gates:
 - A normal shot away from the ceiling and a gentle ceiling hold must behave exactly as shots 56 and 57 did: the latch never binds below the ceiling, so nothing may change.
 - The next choked or channelling day: no audible surging, `pp` during the bind inside a band of about 15 points with no cuts towards zero, peak `cp` within about 0.3 bar of the ceiling.
 - Expected and intended: when the puck flickers open mid-hold, the duty now stays put instead of chasing, so `cp` may sag quietly by up to about a bar before recovering. Quiet sag is a pass; surging is the fail.
+
+The comparison baseline is shots 58 and 59 (2026-08-11, same profile and settings): bind-window duty 2 to 61 with near-zero cuts, `cp` 8.5 to 9.4, per-tick duty step 12 to 14 points. The numbers to beat are in `debug/v187-validation-shots.md`.
+
+Trap for the test day: the choke gates require the ceiling to actually be in force, and the profile's extraction pressure is 0. With the display on v1.8.7 that 0 is silently substituted with 9 bar and the arbitration runs, so "same settings as shots 58/59" exercises the fix. With the display on v1.8.8 or later the 0 passes through raw, the arbitration never engages, and the same profile becomes a genuinely capless shot that tests nothing at the ceiling and will run wherever the puck lets it. If the display has been updated, set the extraction phase pressure explicitly to 9 before the shot.
 
 Rollback: OTA the controller back to v1.8.7.
 
