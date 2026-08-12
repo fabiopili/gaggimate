@@ -46,6 +46,8 @@ Gates:
 
 Contents: while the ceiling latch is engaged, the arbitrated output is capped at the remembered holding duty plus a headroom that opens quadratically with the distance below the setpoint. The memory learns only from settled pressure-branch wins near the setpoint, freezes through sags and claw-backs, and creeps upward while the cap pins a sag so an eroding-but-still-choked puck is re-held at the ceiling rather than deadlocked below it. Discriminating test: a choked toy puck whose conductance fluctuates across the choke boundary at one-second period, the shots 58/59 regime, which the v1.8.7/v1.8.8 controller fails. Controller component must be updated; display is unchanged.
 
+Status 2026-08-12: the first test day did not exercise these gates. Both components ran v1.8.9, so the display's explicit semantics made the profile's pressure 0 truly capless, the arbitration never engaged, and shots 60 and 61 became a valid but different test that failed on capless flow tracking instead (analysis in `debug/v189-shots-60-61.md`, fix in v1.8.10 below). These gates stay open pending a choke day with an explicit 9 bar on the extraction phase.
+
 Gates:
 - A normal shot away from the ceiling and a gentle ceiling hold must behave exactly as shots 56 and 57 did: the latch never binds below the ceiling, so nothing may change.
 - The next choked or channelling day: no audible surging, `pp` during the bind inside a band of about 15 points with no cuts towards zero, peak `cp` within about 0.3 bar of the ceiling.
@@ -57,9 +59,22 @@ Trap for the test day: the choke gates require the ceiling to actually be in for
 
 Rollback: OTA the controller back to v1.8.7.
 
+### v1.8.10, display: wider upward flow-trim authority
+
+Contents: the flow trim's upward clamp rises from 10 to 30 percent of the requested flow. Sized from shots 60 and 61: near the pump's 9 to 11 bar knee, which no calibration has measured, the affine model over-promises by about 40 percent, so a capless flow phase under-delivered for its first half with the trim pinned at the old clamp, visible in the log as `fl` stuck at exactly 110 percent of the target. The slew gate, the established-flow gate and the pressure-capped hold are unchanged and keep wind-up bounded. Display component must be updated; controller is unchanged.
+
+Context the gates need: this runs on top of the Tier 1 coefficients and slip applied through settings on 2026-08-12 (`0,0,-0.289,6.074` and `0,0,-0.036,0.445`). The interim pair `5.3,3.3` with zero slip stays one settings save away as the validated fallback. The two models agree within a few percent at moderate pressures, so a normal shot should not distinguish them.
+
+Gates:
+- A normal shot away from the pump knee must stay in the shots 56/57 band (settled RMS of `vf` against `tf` around 0.2 to 0.3), with no new noises. At moderate pressures the wider clamp should change nothing visible.
+- A capless flow shot in the shots 60/61 regime: settled tracking must improve materially over RMS 0.56/0.73, with the first-half under-delivery closing. `fl` may now sit as high as 130 percent of the target; if it pins at exactly 130 percent with the scale still short, the clamp binds again and the residual is the pump's limit at that pressure, not the trim.
+- Expected and unchanged: the late-shot over-delivery on a fast-eroding puck is loop bandwidth against plant physics. Grade it separately; it does not count against this change.
+
+Rollback: OTA the display back to v1.8.9.
+
 ## Parked queue, in order, with entry criteria
 
-1. Tier 1 duty-surface coefficients and slip (`0,0,-0.289,6.074` and `0,0,-0.036,0.445`), replacing the interim pair `5.3,3.3`. Enters only after v1.8.7 has passed a choke day, and lands together with the save-time plausibility guard on the coefficient strings, so a transposed entry cannot reach a shot (shot 48 did exactly that).
+1. Save-time plausibility guard on the coefficient strings, so a transposed entry cannot reach a shot (shot 48 did exactly that). The Tier 1 coefficients themselves entered through settings on 2026-08-12, ahead of their original criterion, once shots 60/61 showed they agree with the interim pair within a few percent at the failure points and the swap is housekeeping rather than the fix; until the guard ships, the mitigation is a manual read-back after every save.
 2. Trim slew-gate hold-off (the shot 52 discharge-tail wind-down). Enters when a real shot shows the trim pinned low after a fast pressure decline.
 3. A "pressure limited" indicator during shots, so a choked puck reads as a visible state instead of a mystery. After 1.
 4. Duty surface coverage below 3.4 bar (duty 30 to 60), one short rig session, when Tier 1 is in and the low-pressure error matters in practice.

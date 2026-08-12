@@ -136,11 +136,13 @@ class FlowTrimmer {
     static constexpr float SLEW_ZERO_AUTHORITY_BAR_S = 0.45f;
     static constexpr float SLEW_FILTER_TAU_S = 0.5f;    // smooths sensor quantisation out of the slew estimate
     static constexpr float MAX_TRIM_DOWN_RATIO = 0.75f; // command never falls below 25 % of the requested flow
-    // The pump model under-predicts delivered flow everywhere measured, by 19
-    // to 42 %, so a settled trim on this machine is always negative. Upward
-    // authority exists only for an unusually free puck, and keeping it small
-    // bounds what any residual wind-up can do.
-    static constexpr float MAX_TRIM_UP_RATIO = 0.10f;
+    // Sized from shots 60 and 61: near the pump's 9 to 11 bar knee, a regime
+    // no calibration has measured, the affine model over-promises by about
+    // 40 %, so a capless flow phase under-delivers with this clamp pinned
+    // (the original 10 % was sized for a model that under-predicted
+    // everywhere then measured). 30 % covers most of the observed error;
+    // the slew gate and the pressure-capped hold keep wind-up bounded.
+    static constexpr float MAX_TRIM_UP_RATIO = 0.30f;
     static constexpr float QUANT_STEP = 0.05f; // ml/s command resolution
     static constexpr float MAX_DT_S = 0.5f;    // guards against integration bursts after stalls
 
