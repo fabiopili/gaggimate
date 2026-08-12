@@ -84,6 +84,29 @@ static void test_no_authority_above_fade_band() {
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 2.4f, cmd); // exact pass-through
 }
 
+// Shots 60 and 61 regime: at the pump's 9 to 11 bar knee the affine model
+// over-promises by about 40 percent, so a capless flow phase under-delivers
+// with pressure steady and the trim pinned at its old 10 percent upward
+// clamp (fl stuck at 2.20 in the logs). The upward authority must reach 30
+// percent of the request, and stop there.
+static void test_upward_authority_saturates_at_thirty_percent() {
+    FlowTrimmer t;
+    stepTrimmer(t, 2.0f, 1.55f, 11.0f);
+    // Persistent under-delivery of 0.45 g/s at steady pressure: the integral
+    // walks up at 0.135 per second, so 40 steps (10 s) saturate any clamp
+    // between 10 and 40 percent.
+    float cmd = 0.0f;
+    for (int i = 0; i < 40; ++i) {
+        cmd = stepTrimmer(t, 2.0f, 1.55f, 11.0f);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(5e-3f, 2.60f, cmd);
+    // Still bounded: more of the same error must not push past 30 percent.
+    for (int i = 0; i < 10; ++i) {
+        cmd = stepTrimmer(t, 2.0f, 1.55f, 11.0f);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(5e-3f, 2.60f, cmd);
+}
+
 static void test_trim_moves_continuously_across_gate_wobble() {
     FlowTrimmer t;
     float pressure = 6.0f;
@@ -120,6 +143,7 @@ int main() {
     RUN_TEST(test_full_authority_below_slew_gate);
     RUN_TEST(test_partial_authority_inside_fade_band);
     RUN_TEST(test_no_authority_above_fade_band);
+    RUN_TEST(test_upward_authority_saturates_at_thirty_percent);
     RUN_TEST(test_trim_moves_continuously_across_gate_wobble);
     return UNITY_END();
 }
