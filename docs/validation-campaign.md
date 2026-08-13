@@ -70,14 +70,16 @@ Gates:
 - A capless flow shot in the shots 60/61 regime: settled tracking must improve materially over RMS 0.56/0.73, with the first-half under-delivery closing. `fl` may now sit as high as 130 percent of the target; if it pins at exactly 130 percent with the scale still short, the clamp binds again and the residual is the pump's limit at that pressure, not the trim.
 - Expected and unchanged: the late-shot over-delivery on a fast-eroding puck is loop bandwidth against plant physics. Grade it separately; it does not count against this change.
 
+Verdict 2026-08-13, analysis in `debug/v1810-shots-62-63.md`: qualified pass on shots 62 and 63, pending ear confirmation. The first-half under-delivery closed (on target 4 to 5 seconds after first drips, trim at +18 and +27 percent without pinning, no cuts, both weights 43.6 against 43.5), settled RMS improved from 0.56/0.73 to 0.35/0.46 but missed the band through a mid-shot over-delivery hump: the wider clamp lets the trim wind up on the post-drip saturation gap that the old clamp masked. The knee case remains untested, both pucks being open (peaks 4.2 and 6.1 bar). The offline replay (`debug/flow-replay.py`, findings in `debug/flow-model-replay.md`) then traced the residual to two measured causes, model under-read below 3 bar and puck storage discharge of 0.5 to 3.8 g per bar, and produced the cup-truth surface that replaced Tier 1 through settings on 2026-08-13 (`0,0,-0.2742,5.865` and `0,0,0.01673,-0.1799`, rollback to the Tier 1 pair, verified on the machine).
+
 Rollback: OTA the display back to v1.8.9.
 
 ## Parked queue, in order, with entry criteria
 
 1. Save-time plausibility guard on the coefficient strings, so a transposed entry cannot reach a shot (shot 48 did exactly that). The Tier 1 coefficients themselves entered through settings on 2026-08-12, ahead of their original criterion, once shots 60/61 showed they agree with the interim pair within a few percent at the failure points and the swap is housekeeping rather than the fix; until the guard ships, the mitigation is a manual read-back after every save.
-2. Trim slew-gate hold-off (the shot 52 discharge-tail wind-down). Enters when a real shot shows the trim pinned low after a fast pressure decline.
+2. Storage discharge term in the trim reference: subtract C dP/dt from the commanded-flow reference, C 1.5 to 2 g per bar as measured in `debug/flow-model-replay.md`. This replaces the previously queued slew-gate hold-off, which patched the same physics with another gate; the reference term handles both the discharge tail and the saturation wind-up from one model. Enters if shots on the 2026-08-13 surface still show the mid-shot hump.
 3. A "pressure limited" indicator during shots, so a choked puck reads as a visible state instead of a mystery. After 1.
-4. Duty surface coverage below 3.4 bar (duty 30 to 60), one short rig session, when Tier 1 is in and the low-pressure error matters in practice.
+4. Rig sweep of the 9 to 11 bar knee, one short session into the nearly closed steam wand, measurement only. The low-pressure corner this item used to cover was closed from cup truth by the 2026-08-13 refit; the knee is now the only unmeasured region real shots reach, and the replay shows its error is scatter a static surface cannot fix, so this enters only if knee tracking matters after the trim reference work.
 5. The full pump matrix (table plus numerical inversion) only if the affine model leaves tracking errors above roughly 10 percent somewhere real shots go. The measured surface separates cleanly (spread about 0.012, gamma 1.12), so the expectation is that the affine form is the simplification that keeps almost all of the value.
 
 ## Standing rules
