@@ -1,5 +1,7 @@
 # Validation campaign
 
+**Campaign closed 2026-08-14.** Shots 64 and 65 ended it: rough pump cycling, tracking wrong in both directions, and unexplained standby reboots. The machine returns to stock upstream firmware via the reset tag v1.8.11. The full account, the learnings, the reusable tooling and the recommended stock configuration are in `docs/flow-campaign-post-mortem.md`. This document remains as the historical record of the protocol and gates.
+
 The working protocol from 2026-08-09 onward: one behavioural change per OTA, each validated by real shots within a day, iterating from what the shots show. This document is the standing definition of the goals, the gates for each queued release, and the loop that turns a day's shots into the next decision.
 
 ## Goal of the programme
