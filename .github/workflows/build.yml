@@ -14,6 +14,20 @@ jobs:
           fetch-tags: true
           fetch-depth: 0
           submodules: 'recursive'
+      - name: Verify the OTA channel points at this repository
+        run: |
+          set -euo pipefail
+          expected="https://github.com/${{ github.repository }}/releases/"
+          actual=$(sed -n 's/^const String RELEASE_URL = "\(.*\)";$/\1/p' src/display/plugins/WebUIPlugin.h)
+          if [[ "$actual" != "$expected" ]]; then
+            echo "RELEASE_URL is $actual, but this release is published by ${{ github.repository }}."
+            echo "A display flashed with this build would poll $actual and never see releases from"
+            echo "here. RELEASE_URL is compile time, so that cannot be corrected over the air:"
+            echo "recovering costs a USB flash. Point RELEASE_URL at this repository, or tag from"
+            echo "a repository that matches it."
+            exit 1
+          fi
+          echo "OTA channel: $actual"
       - uses: actions/cache@v4
         with:
           path: |
