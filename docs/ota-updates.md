@@ -51,7 +51,7 @@ The rule that follows: a stock reset must be treated as a USB operation, not an 
 
 ## Rules that will bite if ignored
 
-- The version must compare strictly greater by semver than what is installed, for the display and the controller independently. Re-publishing the same tag is a no-op; every iteration needs a new tag. The machine runs `v1.8.11` until the `v1.8.13` USB flash lands, after which the next release must be `v1.8.14` or higher.
+- The version must compare strictly greater by semver than what is installed, for the display and the controller independently. Re-publishing the same tag is a no-op; every iteration needs a new tag. The machine runs a bridge build stamped `v1.8.14`, so the next release must be `v1.8.15` or higher. That tag is deliberately local only and must never be pushed: it marks a display image built from `v1.8.11` content with the fork release URL, flashed over USB on 2026-08-19 to recover a machine whose controller could not be reached with a cable. The number was chosen above the published `v1.8.13` so the display would not offer to update itself mid-repair, which also means nothing is offered to it until `v1.8.15` exists. Delete the local tag once the machine is past it.
 - Keep tags clean `vX.Y.Z`. Locally built firmware carries `git describe` output, and suffixes like `-4-gabcdef-dirty` are treated as prereleases with surprising ordering. Create the tag before building anything you intend to flash, because `version.h` is generated at build time: a build made just before tagging stamps the previous tag's describe output and will look like a downgrade.
 - The fork must stay public; the downloads are unauthenticated.
 - The release asset names are fixed. The standard display build publishes as `display-firmware.bin`, which is what this machine (LilyGo T-RGB) needs. Never rename assets.
@@ -85,6 +85,22 @@ Then select the nightly channel in the UI. Note nightly builds compile with `NIG
 
 ## USB fallback
 
+Always rebuild the web bundle and clean the display environment before building an image you intend to flash:
+
+```shell
+./scripts/build_webui.sh
+pio run -e display -t clean
+pio run -e display
+```
+
+The clean is not optional, and skipping it produced a bad flash on 2026-08-19. `src/display/webassets/web_ui_blob.S` embeds the bundle with `.incbin`, so its own text never changes when the bundle does. SCons signs source files by content, sees an unchanged `.S`, and reuses the stale object, while `web_ui_manifest.h` does change and recompiles with new offsets. The firmware then indexes the new offsets into the old blob, every asset is served from the wrong byte range, and the browser reports a content encoding error against gzip that is not gzip. Confirm before flashing that the object is no older than the bundle:
+
+```shell
+ls -la src/display/webassets/web_ui.bin .pio/build/display/src/display/webassets/web_ui_blob.S.o
+```
+
+CI is immune because it builds from a clean checkout, so a release asset never carries this fault; it is purely a local build hazard. The webassets are git ignored and survive branch switches, which is what makes them easy to get out of step with the tree.
+
 ```shell
 # Display (never add -t uploadfs: it would erase profiles and shot history)
 pio run -e display -t upload --upload-port /dev/cu.usbmodem1101
@@ -93,9 +109,32 @@ pio run -e display -t upload --upload-port /dev/cu.usbmodem1101
 pio run -e controller -t upload --upload-port /dev/cu.usbmodem1101
 ```
 
+Both boards are ESP32-S3 with the same USB VID and PID, so identify the target by flash size before writing: the display is 16MB, the controller 8MB.
+
+```shell
+pio pkg exec -p tool-esptoolpy -- esptool.py --port /dev/cu.usbmodemXXXX --no-stub flash_id
+```
+
 Both boards enumerate with the same USB VID and PID, so pass the port explicitly whenever both are connected. The port number depends on which physical socket is used, so read it from `pio device list` each time rather than trusting a recorded value: the 2026-08-02 display flash came up as `/dev/cu.usbmodem2101`, not the `1101` noted previously.
 
 Note this USB path preserves data exactly like OTA does. It writes only the application image, which is why the 2026-08-02 flash kept all eleven recorded shots and every setting. What erases LittleFS is `-t uploadfs` or the web installer, not USB flashing as such.
+
+## Diagnosing a display stuck on "Starting..."
+
+That text comes from `DefaultUI.cpp`, which shows it until `initialized` is set, and `initialized` is set in exactly one place: the `controller:bluetooth:connect` event, triggered from `Controller::onSystemInfo`. So the message means the controller's SystemInfo has not been received, nothing more specific than that.
+
+Check the obvious cause first. A display powered over USB from a laptop, with the machine off at the mains, has no controller to talk to and will sit on this screen indefinitely, which is correct behaviour rather than a fault. On 2026-08-19 this was misread as a BLE protocol incompatibility and cost a needless firmware downgrade.
+
+Read the handshake state from `GET /api/status` rather than from the screen:
+
+```
+{"mode":0,"tt":0, "ct":16.43}    handshake incomplete
+{"mode":1,"tt":93,"ct":16.49}    controller ready, startup mode and target applied
+```
+
+`tt` and `mode` are the discriminators, because they are only populated once `onSystemInfo` has run. `ct` is not: it reads as a plausible room temperature in both states and proves nothing about the link. Do not infer a live controller from it.
+
+The same screen also appears when `ota->init` has never run, since that is bound to `controller:ready` in `WebUIPlugin`. A display in this state cannot push firmware to the controller, so the controller cannot be recovered through the display's own update UI; it needs USB, or the direct BLE route above.
 
 ## CI notes specific to the fork
 
