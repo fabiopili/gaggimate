@@ -26,6 +26,20 @@ pio run -e display -e controller -e display-headless -e display-headless-8m
 pio test -e native_autotune
 ```
 
+Confirm the rebase preserved the fork delta before going further, since a lost `RELEASE_URL` is the one mistake that costs a USB flash. The diff against upstream should still be the same four files and nothing else:
+
+```shell
+git diff --stat origin/master...fork-ota
+```
+
+A rebase rewrites commits that were already pushed, so the branch push afterwards is a force push and a plain `git push fork fork-ota` will be rejected. Use a lease so it fails rather than clobbering anything that arrived in the meantime:
+
+```shell
+git push --force-with-lease fork fork-ota
+```
+
+Discarding the old commits is safe because each published release is pinned by its own tag, so the pre-rebase history stays reachable regardless.
+
 ## Publishing a stable release (the normal flow)
 
 1. Get the changes onto `fork-ota`, whether that is an upstream sync or local work merged in on top.
@@ -51,7 +65,7 @@ The rule that follows: a stock reset must be treated as a USB operation, not an 
 
 ## Rules that will bite if ignored
 
-- The version must compare strictly greater by semver than what is installed, for the display and the controller independently. Re-publishing the same tag is a no-op; every iteration needs a new tag. Since the 2026-08-19 recovery both boards run `v1.8.15`, current upstream content on the fork channel, so the next release must be `v1.8.16` or higher. The controller reached it in two hops, `v1.8.11` to `v1.8.13` over the display's BLE relay during the recovery and then `v1.8.13` to `v1.8.15` over the air once the pair was healthy again, which is also the first clean end to end exercise of the fork channel. A `v1.8.14` tag exists locally on the abandoned `bridge-display` branch and must never be pushed: it was a display image built from `v1.8.11` content, numbered above the published `v1.8.13` so it would not update itself mid-repair. Delete it and the branch once the machine has been stable for a while.
+- The version must compare strictly greater by semver than what is installed, for the display and the controller independently. Re-publishing the same tag is a no-op; every iteration needs a new tag. Both boards ran `v1.8.15` from the 2026-08-19 recovery until `v1.8.16` on 2026-08-24, the first routine upstream sync on this arrangement and the first release cut without a repair to make, so the next release must be `v1.8.17` or higher. The controller reached `v1.8.15` in two hops, `v1.8.11` to `v1.8.13` over the display's BLE relay during the recovery and then `v1.8.13` to `v1.8.15` over the air once the pair was healthy again, which is also the first clean end to end exercise of the fork channel. A `v1.8.14` tag exists locally on the abandoned `bridge-display` branch and must never be pushed: it was a display image built from `v1.8.11` content, numbered above the published `v1.8.13` so it would not update itself mid-repair. Delete it and the branch once the machine has been stable for a while.
 - Keep tags clean `vX.Y.Z`. Locally built firmware carries `git describe` output, and suffixes like `-4-gabcdef-dirty` are treated as prereleases with surprising ordering. Create the tag before building anything you intend to flash, because `version.h` is generated at build time: a build made just before tagging stamps the previous tag's describe output and will look like a downgrade.
 - The fork must stay public; the downloads are unauthenticated.
 - The release asset names are fixed. The standard display build publishes as `display-firmware.bin`, which is what this machine (LilyGo T-RGB) needs. Never rename assets.
