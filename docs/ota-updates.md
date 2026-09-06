@@ -19,7 +19,7 @@ git fetch origin
 git rebase origin/master fork-ota
 ```
 
-Three commits replay and conflicts are unlikely, since only `WebUIPlugin.h` is shared with upstream and only on one line. Build and test before tagging, because upstream changes arrive unreviewed:
+Three commits replay, and the only file that can conflict is `WebUIPlugin.h`, on the single `RELEASE_URL` line. Expect that conflict rather than being surprised by it: the v1.8.17 sync hit it because upstream added the headless OTA asset names directly around that line, which is enough for git to present the whole hunk. Resolving is always the same shape, keep every upstream line in the hunk and keep our URL, so read the conflict for what upstream added rather than reaching for `--ours` or `--theirs`, either of which would silently discard one side. Build and test before tagging, because upstream changes arrive unreviewed:
 
 ```shell
 pio run -e display -e controller -e display-headless -e display-headless-8m
