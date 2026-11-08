@@ -159,6 +159,9 @@ void GaggiMateController::setup() {
     brewTemperature->setup();
     heater->setup();
     valve->setup();
+    if (_config.capabilites.dimming) {
+        static_cast<DimmedPump *>(pump)->setValveWriter([this](bool on) { valve->set(on); });
+    }
     pump->setup();
     brewBtn->setup();
     steamBtn->setup();
@@ -269,9 +272,13 @@ void GaggiMateController::setup() {
             ESP_LOGW(LOG_TAG, "Ignoring relay control for unsupported index %u", index);
             return;
         }
-        this->valve->set(open);
         if (_config.capabilites.dimming) {
-            static_cast<DimmedPump *>(pump)->setValveState(open);
+            // Sequenced valve write: the pump forces full conduction first and
+            // the GPIO follows once a zero-cross decision has fired, so the
+            // valve transient never lands on a blocking TRIAC.
+            static_cast<DimmedPump *>(pump)->requestValve(open);
+        } else {
+            this->valve->set(open);
         }
     });
     // Heaters stay off until the display delivers these; coordination is applied before the gains enable heating.
@@ -434,7 +441,11 @@ void GaggiMateController::handlePingTimeout() {
     // Turn off the heater and pump as a safety measure
     this->heater->stop();
     this->pump->setPower(0);
-    this->valve->set(false);
+    if (_config.capabilites.dimming) {
+        static_cast<DimmedPump *>(pump)->requestValve(false);
+    } else {
+        this->valve->set(false);
+    }
     if (_config.capabilites.dualBoiler) {
         this->heater2->stop();
         this->refill->set(false);
@@ -462,7 +473,11 @@ void GaggiMateController::thermalRunawayShutdown() {
     // Turn off the heater and pump immediately
     this->heater->stop();
     this->pump->setPower(0);
-    this->valve->set(false);
+    if (_config.capabilites.dimming) {
+        static_cast<DimmedPump *>(pump)->requestValve(false);
+    } else {
+        this->valve->set(false);
+    }
     if (_config.capabilites.dualBoiler) {
         this->heater2->stop();
         this->refill->set(false);
