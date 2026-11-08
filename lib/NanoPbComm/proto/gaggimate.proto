@@ -251,6 +251,7 @@ enum ErrorCode {
     ERROR_CODE_RUNAWAY = 4;
     ERROR_CODE_TIMEOUT = 5;
     ERROR_CODE_AUTOTUNE_TIMEOUT = 6;
+    ERROR_CODE_ZC_LOSS = 7;
 }
 
 message Error {

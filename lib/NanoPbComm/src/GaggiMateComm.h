@@ -60,5 +60,8 @@ constexpr int ERROR_CODE_RUNAWAY = 4;
 constexpr int ERROR_CODE_TIMEOUT = 5;
 // Autotune saw no reaction within its test window (distinct from TIMEOUT): no PID persist, no watchdog-disconnect UX.
 constexpr int ERROR_CODE_AUTOTUNE_TIMEOUT = 6;
+// Zero-cross stream lost: the watchdog has forced the pump gate off and
+// cannot guarantee pump control until pulses return.
+constexpr int ERROR_CODE_ZC_LOSS = 7;
 
 #endif // GAGGIMATE_COMM_H
