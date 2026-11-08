@@ -7,7 +7,13 @@
 DimmedPump::DimmedPump(uint8_t ssr_pin, uint8_t sense_pin, PressureSensor *pressure_sensor, PressureControlRate controlRate)
     : _ssr_pin(ssr_pin), _sense_pin(sense_pin), _psm(_sense_pin, _ssr_pin, 100, FALLING, 1, 4), _pressureSensor(pressure_sensor),
       _controlRate(controlRate), _pressureController(pressureControlPeriodS(controlRate), &_ctrlPressure, &_ctrlFlow,
-                                                     &_currentPressure, &_controllerPower, &_valveStatus) {
+                                                     &_currentPressure, &_controllerPower, &_valveStatus),
+      valveSeq_({VALVE_HOLD_OFF_CAP_MS, GUARD_MS}, [this] { return millis(); }, [this] { return _psm.getCounter(); },
+                [this](bool v) {
+                    if (_valveWriteFn) {
+                        _valveWriteFn(v);
+                    }
+                }) {
     _psm.set(0);
 }
 
@@ -28,7 +34,20 @@ void DimmedPump::loop() {
     const float elapsed = _lastUpdateUs ? (nowUs - _lastUpdateUs) / 1000000.0f : pressureControlPeriodS(_controlRate);
     _lastUpdateUs = nowUs;
     updateZeroCrossWatchdog(nowMs);
-    runValveSequencer(nowMs);
+    const ValveSequencer::Event event = valveSeq_.tick(_zcStale);
+    if (event == ValveSequencer::Event::ValveWritten) {
+        const char *how = valveSeq_.reason() == ValveSequencer::ReleaseReason::Abort            ? "safety abort"
+                          : valveSeq_.reason() == ValveSequencer::ReleaseReason::HoldOffCap ? "hold-off cap"
+                                                                                            : "conduction proof";
+        ESP_LOGI(LOG_TAG, "Valve %s written after %s", valveSeq_.valveState() ? "open" : "closed", how);
+    } else if (event == ValveSequencer::Event::OpenRefusedWhileStale) {
+        if (!_openRefuseLogged) {
+            ESP_LOGW(LOG_TAG, "Valve open refused while zero-cross stream is stale");
+            _openRefuseLogged = true;
+        }
+    } else {
+        _openRefuseLogged = false;
+    }
     const bool fresh = _pressureSensor->consumeAverage();
     if (fresh)
         _currentPressure = _pressureSensor->getAveragedPressure();
@@ -86,7 +105,7 @@ void DimmedPump::updatePower(bool freshPressure, float sampleTime, float elapsed
     }
     PumpOutputIntent intent;
     intent.zcStale = _zcStale;
-    intent.guardActive = _conductionForced || (int32_t)(millis() - _guardUntilMs) < 0;
+    intent.guardActive = valveSeq_.forcingConduction() || valveSeq_.guardActive();
     intent.binaryMode = _binaryMode;
     intent.binaryOn = (_controllerPower > 0 || _ctrlPressure > 0 || _ctrlFlow > 0);
     intent.power = static_cast<int>(_power);
@@ -97,14 +116,7 @@ void DimmedPump::updatePower(bool freshPressure, float sampleTime, float elapsed
         return;
     }
     _psm.set(static_cast<unsigned int>(output));
-    if (_valvePending && !_forcedPublishValid) {
-        // First publish while a valve transition is pending. Snapshot the
-        // fired-decision counter: the valve write is released once the
-        // counter moves, proving a zero-cross decision fired after the
-        // forced 100 percent was published.
-        _counterAtPublish = _psm.getCounter();
-        _forcedPublishValid = true;
-    }
+    valveSeq_.notePublish();
 }
 
 void DimmedPump::setFlowTarget(float targetFlow, float pressureLimit) {
@@ -124,71 +136,30 @@ void DimmedPump::setPressureTarget(float targetPressure, float flowLimit) {
 void DimmedPump::setBinaryMode(bool binaryMode) { _binaryMode = binaryMode; }
 
 void DimmedPump::requestValve(bool open) {
-    if (_valveState == open && !_valvePending) {
-        _valveStatus = open ? 1 : 0;
-        return;
-    }
-    _valveState = open;
     _valveStatus = open ? 1 : 0;
-    _pendingValveState = open;
-    _valvePending = true;
-    _valveArmMs = millis();
-    _forcedPublishValid = false;
-    // Force full conduction from now until the valve write; the guard window
-    // then continues from the write. Conducting is the safe state for both
-    // known failure mechanisms of the TRIAC channel.
-    _conductionForced = true;
+    valveSeq_.request(open);
+}
+
+void DimmedPump::abortValveSequence() {
+    // Safety close: no forced conduction, no guard, the valve is written on
+    // the next pump tick. The low-risk direction, since the solenoid
+    // commutates at zero current.
+    _valveStatus = 0;
+    valveSeq_.abortSequence();
 }
 
 void DimmedPump::updateZeroCrossWatchdog(uint32_t nowMs) {
     // The PSM gate is written only inside the zero-cross ISR, so lost pulses
     // leave the gate frozen in its last state. While the pulse stream is
     // stale, force the gate low from the task side every tick and withhold
-    // every other PSM write via the resolver. Recovery needs two consecutive
-    // fresh checks so a single late pulse cannot flap the state.
-    const bool stale = (nowMs - _psm.getLastMillis()) > ZC_STALE_MS;
-    if (stale) {
-        _freshStreak = 0;
-        if (!_zcStale) {
-            ESP_LOGE(LOG_TAG, "Zero-cross stream stale, forcing pump gate off");
-        }
-        _zcStale = true;
+    // every other PSM write via the resolver. The watchdog clears the state
+    // only after two consecutive fresh checks.
+    const bool fresh = (nowMs - _psm.getLastMillis()) <= ZC_STALE_MS;
+    _zcStale = zcWatchdog_.update(fresh);
+    if (_zcStale) {
         _psm.set(0);
         digitalWrite(_ssr_pin, LOW);
-        return;
     }
-    if (_zcStale) {
-        if (++_freshStreak < 2) {
-            return;
-        }
-        ESP_LOGI(LOG_TAG, "Zero-cross stream recovered, pump control resumes");
-        _zcStale = false;
-        _freshStreak = 0;
-    }
-}
-
-void DimmedPump::runValveSequencer(uint32_t nowMs) {
-    if (!_valvePending) {
-        return;
-    }
-    // Release the valve write when a fired zero-cross decision proves the
-    // channel is conducting (the fired-decision counter moved past the
-    // snapshot taken at the forced publish), or when the fallback cap
-    // expires on a dead zero-cross path, where the watchdog owns the gate.
-    const bool conductionProven = (long)(_psm.getCounter() - _counterAtPublish) > 0;
-    const bool capExpired = (nowMs - _valveArmMs) >= VALVE_HOLD_OFF_CAP_MS;
-    if (!conductionProven && !capExpired) {
-        return;
-    }
-    if (_valveWriteFn) {
-        _valveWriteFn(_pendingValveState);
-    }
-    _valvePending = false;
-    _forcedPublishValid = false;
-    _conductionForced = false;
-    _guardUntilMs = nowMs + GUARD_MS;
-    ESP_LOGI(LOG_TAG, "Valve %s written after %s", _pendingValveState ? "open" : "closed",
-             conductionProven ? "conduction proof" : "hold-off cap");
 }
 
 void DimmedPump::setPumpFlowCoeff(float oneBarFlow, float nineBarFlow) {

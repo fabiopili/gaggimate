@@ -371,6 +371,7 @@ void GaggiMateController::loop() {
     if (errorState != ERROR_CODE_NONE) {
         ESP_LOGW("GaggiMateController", "Error state: %d", errorState);
     }
+    checkZeroCrossHealth(now);
     delay(250);
     if (Serial.available()) {
         while (Serial.available()) {
@@ -430,7 +431,7 @@ void GaggiMateController::detectAddon() {
 }
 
 void GaggiMateController::handlePing() {
-    if (errorState == ERROR_CODE_TIMEOUT) {
+    if (errorState == ERROR_CODE_TIMEOUT || errorState == ERROR_CODE_ZC_LOSS) {
         errorState = ERROR_CODE_NONE;
     }
     lastPingTime = millis();
@@ -442,7 +443,10 @@ void GaggiMateController::handlePingTimeout() {
     this->heater->stop();
     this->pump->setPower(0);
     if (_config.capabilites.dimming) {
-        static_cast<DimmedPump *>(pump)->requestValve(false);
+        // Immediate close, bypassing the sequencer: a sequenced close would
+        // first drive the pump to full power for a guard window, which is
+        // the wrong direction for a safety shutdown.
+        static_cast<DimmedPump *>(pump)->abortValveSequence();
     } else {
         this->valve->set(false);
     }
@@ -474,7 +478,7 @@ void GaggiMateController::thermalRunawayShutdown() {
     this->heater->stop();
     this->pump->setPower(0);
     if (_config.capabilites.dimming) {
-        static_cast<DimmedPump *>(pump)->requestValve(false);
+        static_cast<DimmedPump *>(pump)->abortValveSequence();
     } else {
         this->valve->set(false);
     }
@@ -487,6 +491,32 @@ void GaggiMateController::thermalRunawayShutdown() {
     }
     errorState = ERROR_CODE_RUNAWAY;
     _comms.sendError(ERROR_CODE_RUNAWAY);
+}
+
+void GaggiMateController::checkZeroCrossHealth(unsigned long now) {
+    if (pump == nullptr || !_config.capabilites.dimming) {
+        return;
+    }
+    auto *dimmedPump = static_cast<DimmedPump *>(pump);
+    if (!dimmedPump->zeroCrossStale()) {
+        zcLossSinceMs = 0;
+        if (errorState == ERROR_CODE_ZC_LOSS) {
+            errorState = ERROR_CODE_NONE;
+        }
+        return;
+    }
+    if (zcLossSinceMs == 0) {
+        zcLossSinceMs = now;
+    }
+    // Report only on persistence: the watchdog threshold already absorbs
+    // short flash-write stalls, and a genuine loss degrades to this error
+    // about a second in. The stock display shows an unknown code as an
+    // error and drops to standby, which is the safe outcome.
+    if (errorState != ERROR_CODE_ZC_LOSS && now - zcLossSinceMs > ZC_ERROR_AFTER_STALE_MS) {
+        ESP_LOGE(LOG_TAG, "Zero-cross stream lost, pump gate forced off");
+        errorState = ERROR_CODE_ZC_LOSS;
+        _comms.sendError(ERROR_CODE_ZC_LOSS);
+    }
 }
 
 void GaggiMateController::sendSensorData() {

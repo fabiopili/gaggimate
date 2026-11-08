@@ -17,6 +17,7 @@
 #include <vector>
 
 constexpr double PING_TIMEOUT_SECONDS = 20.0;
+constexpr uint32_t ZC_ERROR_AFTER_STALE_MS = 1000;
 constexpr unsigned long LED_HEALTH_CHECK_INTERVAL_MS = 5000;
 constexpr unsigned long TANK_LEVEL_SEND_INTERVAL_MS = 5000;
 
@@ -37,6 +38,7 @@ class GaggiMateController {
     void handlePing();
     void handlePingTimeout(void);
     void thermalRunawayShutdown(void);
+    void checkZeroCrossHealth(unsigned long now);
     void startPidAutotune(void);
     void stopPidAutotune(void);
     void sendSensorData(void);
@@ -81,6 +83,7 @@ class GaggiMateController {
     unsigned long lastPingTime = 0;
     unsigned long lastLedHealthCheck = 0;
     unsigned long lastTankLevelSend = 0;
+    uint32_t zcLossSinceMs = 0;
     size_t errorState = ERROR_CODE_NONE;
 
     const char *LOG_TAG = "GaggiMateController";
