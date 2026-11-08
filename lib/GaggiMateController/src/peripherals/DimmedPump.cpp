@@ -41,14 +41,14 @@ void DimmedPump::loop() {
                                                                                             : "conduction proof";
         ESP_LOGI(LOG_TAG, "Valve %s written after %s", valveSeq_.valveState() ? "open" : "closed", how);
     } else if (event == ValveSequencer::Event::OpenRefusedWhileStale) {
-        if (!_openRefuseLogged) {
-            ESP_LOGW(LOG_TAG, "Valve open refused while zero-cross stream is stale");
-            _openRefuseLogged = true;
-        }
-        // The valve never physically opened: keep the feedforward mirror honest.
+        ESP_LOGW(LOG_TAG, "Valve open refused while zero-cross stream is stale");
+        // The valve never physically opened: keep the feedforward mirror honest,
+        // drop the pump command so a recovering stream does not drive the pump
+        // against the closed valve, and flag the refusal so the controller
+        // reports it without waiting for the staleness persistence threshold.
         _valveStatus = 0;
-    } else {
-        _openRefuseLogged = false;
+        setPower(0);
+        _refusedOpen.store(true, std::memory_order_release);
     }
     const bool fresh = _pressureSensor->consumeAverage();
     if (fresh)
@@ -156,7 +156,7 @@ void DimmedPump::updateZeroCrossWatchdog(uint32_t nowMs) {
     // stale, force the gate low from the task side every tick and withhold
     // every other PSM write via the resolver. The watchdog clears the state
     // only after two consecutive fresh checks.
-    const bool fresh = (nowMs - _psm.getLastMillis()) <= ZC_STALE_MS;
+    const bool fresh = zeroCrossPulseFresh(nowMs, _psm.getLastMillis(), ZC_STALE_MS);
     const bool stale = zcWatchdog_.update(fresh);
     if (stale != _zcStale.load(std::memory_order_acquire)) {
         if (stale) {

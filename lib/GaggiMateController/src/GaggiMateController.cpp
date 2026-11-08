@@ -436,7 +436,11 @@ void GaggiMateController::detectAddon() {
 }
 
 void GaggiMateController::handlePing() {
-    if (errorState == ERROR_CODE_TIMEOUT || errorState == ERROR_CODE_ZC_LOSS) {
+    // Only the ping timeout is cleared by a ping. A zero-cross loss clears when
+    // the pulse stream recovers (checkZeroCrossHealth); clearing it here would
+    // let every command through the fault gate, since each handler pings
+    // before it checks errorState.
+    if (errorState == ERROR_CODE_TIMEOUT) {
         errorState = ERROR_CODE_NONE;
     }
     lastPingTime = millis();
@@ -444,17 +448,17 @@ void GaggiMateController::handlePing() {
 }
 
 void GaggiMateController::handlePingTimeout() {
+    // loop() re-enters this every 250 ms for as long as the display is silent.
+    // Latch the error first, so a command dispatched during the shutdown is
+    // gated, and keep everything that must happen once inside the transition
+    // guard: the sequencer abort, the log line and the link drop. The output
+    // writes are idempotent and run on every pass.
+    const bool transition = errorState != ERROR_CODE_TIMEOUT;
+    errorState = ERROR_CODE_TIMEOUT;
     // Turn off the heater and pump as a safety measure
     this->heater->stop();
     this->pump->setPower(0);
-    if (_config.capabilites.dimming) {
-        // Immediate close, bypassing the sequencer: a sequenced close would
-        // first drive the pump to full power for a guard window, which is
-        // the wrong direction for a safety shutdown.
-        static_cast<DimmedPump *>(pump)->abortValveSequence();
-    } else {
-        this->valve->set(false);
-    }
+    closeValveForSafety(transition);
     if (_config.capabilites.dualBoiler) {
         this->heater2->stop();
         this->refill->set(false);
@@ -466,27 +470,28 @@ void GaggiMateController::handlePingTimeout() {
     // notify can be silently swallowed on a wedged GATT (the failure mode this
     // is here to recover from), but LL_TERMINATE_IND propagates reliably at
     // the link layer. The display's existing disconnect path then rebuilds
-    // the link and re-sends control state. loop() re-enters every 250 ms while
-    // timed out -- guard so we don't repeatedly bounce the connection or spam
-    // the log.
-    if (errorState != ERROR_CODE_TIMEOUT) {
+    // the link and re-sends control state.
+    if (transition) {
         ESP_LOGE(LOG_TAG, "Ping timeout detected. Turning off heater and pump for safety.");
         if (!_comms.isUpdating())
             _comms.disconnect();
     }
-    errorState = ERROR_CODE_TIMEOUT;
 }
 
 void GaggiMateController::thermalRunawayShutdown() {
-    ESP_LOGE(LOG_TAG, "Thermal runaway detected! Turning off heater and pump!\n");
+    // Latch first so a command dispatched during the shutdown is gated. The
+    // sensors can call this repeatedly while the fault persists, so the
+    // outputs are driven off on every call and the one-shot work (sequencer
+    // abort, log line, error report) runs on the transition only.
+    const bool transition = errorState != ERROR_CODE_RUNAWAY;
+    errorState = ERROR_CODE_RUNAWAY;
+    if (transition) {
+        ESP_LOGE(LOG_TAG, "Thermal runaway detected! Turning off heater and pump!\n");
+    }
     // Turn off the heater and pump immediately
     this->heater->stop();
     this->pump->setPower(0);
-    if (_config.capabilites.dimming) {
-        static_cast<DimmedPump *>(pump)->abortValveSequence();
-    } else {
-        this->valve->set(false);
-    }
+    closeValveForSafety(transition);
     if (_config.capabilites.dualBoiler) {
         this->heater2->stop();
         this->refill->set(false);
@@ -494,35 +499,64 @@ void GaggiMateController::thermalRunawayShutdown() {
     } else {
         this->alt->set(false);
     }
-    errorState = ERROR_CODE_RUNAWAY;
-    _comms.sendError(ERROR_CODE_RUNAWAY);
+    if (transition) {
+        _comms.sendError(ERROR_CODE_RUNAWAY);
+    }
+}
+
+void GaggiMateController::closeValveForSafety(bool abortSequencer) {
+    // The fail-safe direction is written synchronously here so it never waits
+    // on the pump task. On dimming boards the sequencer is also aborted, once
+    // per fault, so a transition in flight is cancelled and its state
+    // reconciles with the closed GPIO on the next pump tick, without the
+    // forced-conduction window a sequenced close would add.
+    this->valve->set(false);
+    if (abortSequencer && _config.capabilites.dimming) {
+        static_cast<DimmedPump *>(pump)->abortValveSequence();
+    }
 }
 
 void GaggiMateController::checkZeroCrossHealth(unsigned long now) {
     if (pump == nullptr || !_config.capabilites.dimming) {
         return;
     }
+    // Flash writes during a controller update mask the zero-cross interrupt.
+    // The watchdog may trip, but that must not surface as an error mid-OTA.
+    if (_comms.isUpdating()) {
+        return;
+    }
     auto *dimmedPump = static_cast<DimmedPump *>(pump);
-    if (!dimmedPump->zeroCrossStale()) {
+    const bool refusedOpen = dimmedPump->consumeRefusedOpen();
+    const bool stale = dimmedPump->zeroCrossStale();
+    if (!stale && !refusedOpen) {
         zcLossSinceMs = 0;
         if (errorState == ERROR_CODE_ZC_LOSS) {
+            ESP_LOGI(LOG_TAG, "Zero-cross stream recovered, clearing error state");
             errorState = ERROR_CODE_NONE;
         }
         return;
     }
-    if (zcLossSinceMs == 0) {
+    if (stale && zcLossSinceMs == 0) {
         zcLossSinceMs = now;
     }
-    // Report only on persistence: the watchdog threshold already absorbs
-    // short flash-write stalls, and a genuine loss degrades to this error
-    // about a second in. The stock display shows an unknown code as an
-    // error and drops to standby, which is the safe outcome. Latch only
-    // from a clean state: overwriting a latched RUNAWAY or TIMEOUT here
+    // Report on persistence, or at once when a shot was attempted on the dead
+    // stream: the watchdog threshold already absorbs short flash-write stalls
+    // and a genuine loss degrades to this error about a second in, but a
+    // refused valve open means the display is running a shot that cannot
+    // proceed and must abandon it now. The stock display shows an unknown
+    // code as an error and drops to standby, which is the safe outcome. Latch
+    // only from a clean state: overwriting a latched RUNAWAY or TIMEOUT here
     // would let a ping clear the safety latch and would defeat the
-    // ping-timeout storm guard.
-    if (errorState == ERROR_CODE_NONE && now - zcLossSinceMs > ZC_ERROR_AFTER_STALE_MS) {
-        ESP_LOGE(LOG_TAG, "Zero-cross stream lost, pump gate forced off");
+    // ping-timeout storm guard. While latched, repeat the report every few
+    // seconds so a display that connects after the fault still learns of it.
+    const bool persistent = stale && now - zcLossSinceMs > ZC_ERROR_AFTER_STALE_MS;
+    if (errorState == ERROR_CODE_NONE && (persistent || refusedOpen)) {
+        ESP_LOGE(LOG_TAG, "Zero-cross stream lost%s, pump gate forced off", refusedOpen ? " with a valve open pending" : "");
         errorState = ERROR_CODE_ZC_LOSS;
+        lastZcErrorSentMs = now;
+        _comms.sendError(ERROR_CODE_ZC_LOSS);
+    } else if (errorState == ERROR_CODE_ZC_LOSS && now - lastZcErrorSentMs >= ZC_ERROR_RESEND_MS) {
+        lastZcErrorSentMs = now;
         _comms.sendError(ERROR_CODE_ZC_LOSS);
     }
 }

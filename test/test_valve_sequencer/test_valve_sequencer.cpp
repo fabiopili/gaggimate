@@ -15,11 +15,6 @@ constexpr uint32_t GUARD = 50;
 uint32_t fakeNow = 0;
 long fakeCounter = 0;
 std::vector<bool> writes;
-
-bool writeCb(bool state) {
-    writes.push_back(state);
-    return state;
-}
 } // namespace
 
 ValveSequencer makeSequencer() {
@@ -194,6 +189,18 @@ void test_refused_open_cancels_and_recovery_does_not_auto_open(void) {
     TEST_ASSERT_TRUE(writes[0]);
 }
 
+void test_pulse_freshness_tolerates_newer_pulse_and_wrap(void) {
+    // Regression: the ISR can stamp a pulse after the task sampled its clock,
+    // leaving the pulse one millisecond newer than now. An unsigned age would
+    // wrap to a huge value and trip the watchdog falsely.
+    TEST_ASSERT_TRUE(zeroCrossPulseFresh(1000, 1001, 100));
+    TEST_ASSERT_TRUE(zeroCrossPulseFresh(1000, 900, 100));
+    TEST_ASSERT_FALSE(zeroCrossPulseFresh(1000, 899, 100));
+    // millis() wrap: now just past zero, last pulse just before the wrap.
+    TEST_ASSERT_TRUE(zeroCrossPulseFresh(5, 0xFFFFFFF0u, 100));
+    TEST_ASSERT_FALSE(zeroCrossPulseFresh(200, 0xFFFFFFF0u, 100));
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_first_tick_after_request_writes_nothing);
@@ -209,5 +216,6 @@ int main(int, char **) {
     RUN_TEST(test_no_edge_is_a_noop);
     RUN_TEST(test_watchdog_trips_and_needs_two_fresh_checks);
     RUN_TEST(test_refused_open_cancels_and_recovery_does_not_auto_open);
+    RUN_TEST(test_pulse_freshness_tolerates_newer_pulse_and_wrap);
     return UNITY_END();
 }

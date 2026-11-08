@@ -49,6 +49,10 @@ class DimmedPump : public Pump {
     void requestValve(bool open);
     void abortValveSequence();
     bool zeroCrossStale() const { return _zcStale.load(std::memory_order_acquire); }
+    // True once per refused valve open (a shot attempted on a stale zero-cross
+    // stream). The controller reports it to the display at once instead of
+    // waiting for the staleness persistence threshold.
+    bool consumeRefusedOpen() { return _refusedOpen.exchange(false, std::memory_order_acq_rel); }
     void setValveWriter(std::function<void(bool)> writer) { _valveWriteFn = std::move(writer); }
 
   private:
@@ -83,7 +87,7 @@ class DimmedPump : public Pump {
     ValveSequencer valveSeq_;
     ZeroCrossWatchdog zcWatchdog_;
     std::atomic<bool> _zcStale{false};
-    bool _openRefuseLogged = false;
+    std::atomic<bool> _refusedOpen{false};
 
     static constexpr uint32_t VALVE_HOLD_OFF_CAP_MS = 80;
     static constexpr uint32_t GUARD_MS = 50;

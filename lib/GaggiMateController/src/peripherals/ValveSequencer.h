@@ -165,6 +165,15 @@ class ValveSequencer {
     ReleaseReason releaseReason_ = ReleaseReason::None;
 };
 
+// Age test for the zero-cross pulse stream. The pulse timestamp is written by
+// the ISR and can be newer than a clock sample taken a few microseconds
+// earlier on the task; a plain unsigned subtraction would then wrap to a huge
+// age and trip the watchdog falsely. The signed difference treats a newer
+// pulse as fresh and survives the millis() wrap.
+inline bool zeroCrossPulseFresh(uint32_t nowMs, uint32_t lastPulseMs, uint32_t thresholdMs) {
+    return static_cast<int32_t>(nowMs - lastPulseMs) <= static_cast<int32_t>(thresholdMs);
+}
+
 // Zero-cross stream health. Enters the stale state on a single stale check
 // and leaves it after two consecutive fresh checks, so one late pulse (or
 // one flash-write stall shorter than the threshold) cannot flap the state.
