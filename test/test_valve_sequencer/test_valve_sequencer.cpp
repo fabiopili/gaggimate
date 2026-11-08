@@ -199,6 +199,9 @@ void test_pulse_freshness_tolerates_newer_pulse_and_wrap(void) {
     // millis() wrap: now just past zero, last pulse just before the wrap.
     TEST_ASSERT_TRUE(zeroCrossPulseFresh(5, 0xFFFFFFF0u, 100));
     TEST_ASSERT_FALSE(zeroCrossPulseFresh(200, 0xFFFFFFF0u, 100));
+    // A stream dead longer than the signed range must not read as fresh:
+    // the lower bound confines the tolerance to the ISR race window.
+    TEST_ASSERT_FALSE(zeroCrossPulseFresh(0x80000032u, 0, 100));
 }
 
 int main(int, char **) {

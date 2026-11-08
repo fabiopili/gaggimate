@@ -169,9 +169,13 @@ class ValveSequencer {
 // the ISR and can be newer than a clock sample taken a few microseconds
 // earlier on the task; a plain unsigned subtraction would then wrap to a huge
 // age and trip the watchdog falsely. The signed difference treats a newer
-// pulse as fresh and survives the millis() wrap.
+// pulse as fresh and survives the millis() wrap. The lower bound confines
+// that tolerance to the microseconds-wide race window: without it, a stream
+// dead longer than 2^31 ms would read as fresh for one window per 49.7-day
+// cycle and silently clear the watchdog and the error latch.
 inline bool zeroCrossPulseFresh(uint32_t nowMs, uint32_t lastPulseMs, uint32_t thresholdMs) {
-    return static_cast<int32_t>(nowMs - lastPulseMs) <= static_cast<int32_t>(thresholdMs);
+    const int32_t diff = static_cast<int32_t>(nowMs - lastPulseMs);
+    return diff <= static_cast<int32_t>(thresholdMs) && diff >= -static_cast<int32_t>(thresholdMs);
 }
 
 // Zero-cross stream health. Enters the stale state on a single stale check

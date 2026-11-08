@@ -39,7 +39,7 @@ class GaggiMateController {
     void handlePing();
     void handlePingTimeout(void);
     void thermalRunawayShutdown(void);
-    void closeValveForSafety(bool abortSequencer);
+    void closeValveForSafety(void);
     void checkZeroCrossHealth(unsigned long now);
     void startPidAutotune(void);
     void stopPidAutotune(void);

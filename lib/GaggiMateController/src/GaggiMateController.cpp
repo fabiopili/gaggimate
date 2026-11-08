@@ -458,7 +458,7 @@ void GaggiMateController::handlePingTimeout() {
     // Turn off the heater and pump as a safety measure
     this->heater->stop();
     this->pump->setPower(0);
-    closeValveForSafety(transition);
+    closeValveForSafety();
     if (_config.capabilites.dualBoiler) {
         this->heater2->stop();
         this->refill->set(false);
@@ -491,7 +491,7 @@ void GaggiMateController::thermalRunawayShutdown() {
     // Turn off the heater and pump immediately
     this->heater->stop();
     this->pump->setPower(0);
-    closeValveForSafety(transition);
+    closeValveForSafety();
     if (_config.capabilites.dualBoiler) {
         this->heater2->stop();
         this->refill->set(false);
@@ -504,14 +504,18 @@ void GaggiMateController::thermalRunawayShutdown() {
     }
 }
 
-void GaggiMateController::closeValveForSafety(bool abortSequencer) {
+void GaggiMateController::closeValveForSafety() {
     // The fail-safe direction is written synchronously here so it never waits
-    // on the pump task. On dimming boards the sequencer is also aborted, once
-    // per fault, so a transition in flight is cancelled and its state
-    // reconciles with the closed GPIO on the next pump tick, without the
-    // forced-conduction window a sequenced close would add.
+    // on the pump task, and the sequencer is aborted on every pass so its
+    // state reconciles with the closed GPIO even if a request slipped through
+    // the fault gate around the latch: without the unconditional abort, a
+    // sequencer that believed the valve open would stop writing it, the next
+    // shot would see no edge, and only a reboot would recover. The abort is
+    // two atomic stores and the closed direction is idempotent; the worst
+    // interleaving with an in-flight sequenced open is a valve blip of one
+    // pump tick (about 17 ms) with the pump already commanded off.
     this->valve->set(false);
-    if (abortSequencer && _config.capabilites.dimming) {
+    if (_config.capabilites.dimming) {
         static_cast<DimmedPump *>(pump)->abortValveSequence();
     }
 }
