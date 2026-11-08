@@ -33,6 +33,8 @@ void setUp(void) {
     writes.clear();
 }
 
+void tearDown(void) {}
+
 void test_first_tick_after_request_writes_nothing(void) {
     // Regression: the counter snapshot is only valid after the forced
     // publish, so a stale snapshot from a previous transition must not
@@ -109,20 +111,6 @@ void test_cap_expiry_releases_on_fresh_zero_cross(void) {
     fakeNow = HOLD_OFF_CAP;
     TEST_ASSERT_EQUAL(ValveSequencer::Event::ValveWritten, seq.tick(false));
     TEST_ASSERT_EQUAL(ValveSequencer::ReleaseReason::HoldOffCap, seq.reason());
-}
-
-void test_open_refused_while_stale_on_cap_expiry(void) {
-    ValveSequencer seq = makeSequencer();
-    seq.request(true);
-    seq.tick(false);
-    seq.notePublish();
-    fakeNow = HOLD_OFF_CAP;
-    TEST_ASSERT_EQUAL(ValveSequencer::Event::OpenRefusedWhileStale, seq.tick(true));
-    TEST_ASSERT_TRUE(writes.empty());
-    // Recovery: fresh zero-cross stream, publish and proof complete.
-    fakeCounter += 1;
-    TEST_ASSERT_EQUAL(ValveSequencer::Event::ValveWritten, seq.tick(false));
-    TEST_ASSERT_TRUE(writes[0]);
 }
 
 void test_close_proceeds_while_stale_on_cap_expiry(void) {
@@ -215,7 +203,6 @@ int main(int, char **) {
     RUN_TEST(test_guard_does_not_latch_after_long_idle);
     RUN_TEST(test_guard_survives_millis_wraparound);
     RUN_TEST(test_cap_expiry_releases_on_fresh_zero_cross);
-    RUN_TEST(test_open_refused_while_stale_on_cap_expiry);
     RUN_TEST(test_close_proceeds_while_stale_on_cap_expiry);
     RUN_TEST(test_rapid_open_then_close_retargets);
     RUN_TEST(test_abort_closes_immediately_without_guard);

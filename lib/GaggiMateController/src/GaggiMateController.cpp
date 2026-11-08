@@ -221,7 +221,9 @@ void GaggiMateController::setup() {
             return;
         }
         handlePing();
-        if (errorState != ERROR_CODE_NONE) {
+        // While faulted, refuse energising commands but let a pump-off
+        // command through, so an error cannot leave the pump running.
+        if (errorState != ERROR_CODE_NONE && !(mode == PumpControlMode::Power && power == 0.0f)) {
             return;
         }
         if (mode == PumpControlMode::Power) {
@@ -247,7 +249,10 @@ void GaggiMateController::setup() {
     // index 2 = steam refill, index 3 = steam-pressure hot-water valve.
     _comms.onRelayControl([this](uint8_t index, bool open) {
         handlePing();
-        if (errorState != ERROR_CODE_NONE) {
+        // While faulted, refuse commands that energise hardware but let the
+        // fail-safe direction through, so an error cannot pin the brew valve
+        // open with no way to close it.
+        if (errorState != ERROR_CODE_NONE && open) {
             return;
         }
         if (_config.capabilites.dualBoiler) {
@@ -511,8 +516,11 @@ void GaggiMateController::checkZeroCrossHealth(unsigned long now) {
     // Report only on persistence: the watchdog threshold already absorbs
     // short flash-write stalls, and a genuine loss degrades to this error
     // about a second in. The stock display shows an unknown code as an
-    // error and drops to standby, which is the safe outcome.
-    if (errorState != ERROR_CODE_ZC_LOSS && now - zcLossSinceMs > ZC_ERROR_AFTER_STALE_MS) {
+    // error and drops to standby, which is the safe outcome. Latch only
+    // from a clean state: overwriting a latched RUNAWAY or TIMEOUT here
+    // would let a ping clear the safety latch and would defeat the
+    // ping-timeout storm guard.
+    if (errorState == ERROR_CODE_NONE && now - zcLossSinceMs > ZC_ERROR_AFTER_STALE_MS) {
         ESP_LOGE(LOG_TAG, "Zero-cross stream lost, pump gate forced off");
         errorState = ERROR_CODE_ZC_LOSS;
         _comms.sendError(ERROR_CODE_ZC_LOSS);

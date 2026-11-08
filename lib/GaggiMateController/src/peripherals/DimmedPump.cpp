@@ -45,6 +45,8 @@ void DimmedPump::loop() {
             ESP_LOGW(LOG_TAG, "Valve open refused while zero-cross stream is stale");
             _openRefuseLogged = true;
         }
+        // The valve never physically opened: keep the feedforward mirror honest.
+        _valveStatus = 0;
     } else {
         _openRefuseLogged = false;
     }
@@ -155,8 +157,16 @@ void DimmedPump::updateZeroCrossWatchdog(uint32_t nowMs) {
     // every other PSM write via the resolver. The watchdog clears the state
     // only after two consecutive fresh checks.
     const bool fresh = (nowMs - _psm.getLastMillis()) <= ZC_STALE_MS;
-    _zcStale = zcWatchdog_.update(fresh);
-    if (_zcStale) {
+    const bool stale = zcWatchdog_.update(fresh);
+    if (stale != _zcStale.load(std::memory_order_acquire)) {
+        if (stale) {
+            ESP_LOGE(LOG_TAG, "Zero-cross stream stale, forcing pump gate off");
+        } else {
+            ESP_LOGI(LOG_TAG, "Zero-cross stream recovered, pump control resumes");
+        }
+    }
+    _zcStale.store(stale, std::memory_order_release);
+    if (stale) {
         _psm.set(0);
         digitalWrite(_ssr_pin, LOW);
     }

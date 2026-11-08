@@ -48,7 +48,7 @@ class DimmedPump : public Pump {
     // guard window); setValveWriter() injects the GPIO write.
     void requestValve(bool open);
     void abortValveSequence();
-    bool zeroCrossStale() const { return _zcStale; }
+    bool zeroCrossStale() const { return _zcStale.load(std::memory_order_acquire); }
     void setValveWriter(std::function<void(bool)> writer) { _valveWriteFn = std::move(writer); }
 
   private:
@@ -82,7 +82,7 @@ class DimmedPump : public Pump {
     std::function<void(bool)> _valveWriteFn;
     ValveSequencer valveSeq_;
     ZeroCrossWatchdog zcWatchdog_;
-    bool _zcStale = false;
+    std::atomic<bool> _zcStale{false};
     bool _openRefuseLogged = false;
 
     static constexpr uint32_t VALVE_HOLD_OFF_CAP_MS = 80;
