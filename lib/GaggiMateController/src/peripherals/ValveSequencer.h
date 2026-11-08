@@ -88,8 +88,16 @@ class ValveSequencer {
         if (proof || capExpired) {
             if (!proof && zeroCrossStale && pendingState_) {
                 // Opening onto a blocking TRIAC with no zero-cross stream
-                // would defeat the protection and the shot cannot run anyway;
-                // wait for recovery or a safety abort instead.
+                // would defeat the protection and the shot cannot run anyway.
+                // Cancel the open instead of leaving it pending: a deferred
+                // open would self-resume after recovery through the cap
+                // branch without a fresh force-publish-proof cycle, restarting
+                // a shot the display has already abandoned to an error screen.
+                // The user restarts the shot; a safety abort still closes.
+                requested_.store(false, std::memory_order_release);
+                pending_ = false;
+                conductionForced_ = false;
+                publishValid_ = false;
                 return Event::OpenRefusedWhileStale;
             }
             finish(pendingState_, now,

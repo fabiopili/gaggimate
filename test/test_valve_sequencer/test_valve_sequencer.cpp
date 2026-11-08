@@ -6,6 +6,8 @@
 
 #include <peripherals/ValveSequencer.h>
 
+#include <vector>
+
 namespace {
 constexpr uint32_t HOLD_OFF_CAP = 60;
 constexpr uint32_t GUARD = 50;
@@ -178,6 +180,32 @@ void test_watchdog_trips_and_needs_two_fresh_checks(void) {
     TEST_ASSERT_TRUE(watchdog.update(false));  // re-trips immediately
 }
 
+void test_refused_open_cancels_and_recovery_does_not_auto_open(void) {
+    // Regression: a refused open must cancel the transition. If the pending
+    // open survived, the first tick after zero-cross recovery would release
+    // the valve through the cap branch without a fresh force-publish-proof
+    // cycle, self-resuming a shot the display has already abandoned.
+    ValveSequencer seq = makeSequencer();
+    seq.request(true);
+    seq.tick(false);
+    seq.notePublish();
+    fakeNow = HOLD_OFF_CAP;
+    TEST_ASSERT_EQUAL(ValveSequencer::Event::OpenRefusedWhileStale, seq.tick(true));
+    // Zero-cross recovers, but nothing re-issues the request.
+    fakeNow += 10;
+    fakeCounter += 3;
+    TEST_ASSERT_EQUAL(ValveSequencer::Event::None, seq.tick(false));
+    TEST_ASSERT_TRUE(writes.empty());
+    TEST_ASSERT_FALSE(seq.forcingConduction());
+    // A fresh request opens normally through the designed path.
+    seq.request(true);
+    seq.tick(false);
+    seq.notePublish();
+    fakeCounter += 1;
+    TEST_ASSERT_EQUAL(ValveSequencer::Event::ValveWritten, seq.tick(false));
+    TEST_ASSERT_TRUE(writes[0]);
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_first_tick_after_request_writes_nothing);
@@ -193,5 +221,6 @@ int main(int, char **) {
     RUN_TEST(test_abort_closes_immediately_without_guard);
     RUN_TEST(test_no_edge_is_a_noop);
     RUN_TEST(test_watchdog_trips_and_needs_two_fresh_checks);
+    RUN_TEST(test_refused_open_cancels_and_recovery_does_not_auto_open);
     return UNITY_END();
 }

@@ -94,6 +94,7 @@ class DimmedPump : public Pump {
     static constexpr float MAX_FREQ = 60.0f;
 
     void updatePower(bool freshPressure, float sampleTime, float elapsed);
+    void updateZeroCrossWatchdog(uint32_t nowMs);
     int64_t _lastUpdateUs = 0;
     void onPressureUpdate(float pressure);
 
