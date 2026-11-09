@@ -2,7 +2,7 @@
 
 How to ship new firmware to the machine without a cable, using the fork at `github.com/fabiopili/gaggimate`.
 
-The standing arrangement since 2026-08-19 is that the machine runs upstream code but takes its updates from the fork. `fork-ota` is upstream `master` plus three small commits, one line of which sits outside `.github`: a CI guard that lets a fork build a release at all, the `RELEASE_URL` pointer, and a check that refuses to publish a release aimed at another repository. Tracking upstream this way costs almost nothing to rebase, while keeping the release channel under our control so local work can be added on top whenever it is wanted.
+The standing arrangement since 2026-08-19 is that the machine runs upstream code but takes its updates from the fork. `fork-ota` is upstream `master` plus two things: the release plumbing, which is a CI guard that lets a fork build a release at all, the `RELEASE_URL` pointer and a check that refuses to publish a release aimed at another repository, and whatever local work we want on the machine. For most of its life the branch carried only the plumbing, since a thin delta was the point; since 2026-11-08 it also carries the guard-window controller work. All of it builds on upstream `master` rather than diverging from it, so a sync replays our commits instead of merging two histories, which is what keeps a sync cheap.
 
 Remotes in this working copy, easy to get backwards: `origin` is upstream `jniebuhr/gaggimate` and the fork is the remote named `fork`. Since 2026-08-12 the repo config pins `remote.pushDefault` and the `fork-ota` upstream to `fork`, so a bare `git push` goes to the right place, but never write `git push origin` for a release.
 
@@ -19,16 +19,17 @@ git fetch origin
 git rebase origin/master fork-ota
 ```
 
-Three commits replay, and the only file that can conflict is `WebUIPlugin.h`, on the single `RELEASE_URL` line. Expect that conflict rather than being surprised by it: the v1.8.17 sync hit it because upstream added the headless OTA asset names directly around that line, which is enough for git to present the whole hunk. Resolving is always the same shape, keep every upstream line in the hunk and keep our URL, so read the conflict for what upstream added rather than reaching for `--ours` or `--theirs`, either of which would silently discard one side. Build and test before tagging, because upstream changes arrive unreviewed:
+Every commit of ours replays. The plumbing touches almost nothing upstream looks at, so those commits replay cleanly, but local firmware work is a different matter because upstream moves the same controller files. `WebUIPlugin.h` is the conflict to expect, and on the guard work also expect `DimmedPump`, `GaggMateController` and the comms headers. The `WebUIPlugin.h` case always resolves the same way: the v1.8.17 sync hit it because upstream added the headless OTA asset names directly around the `RELEASE_URL` line, enough for git to present the whole hunk, and the fix is to keep every upstream line and keep our URL rather than reaching for `--ours` or `--theirs`, either of which silently discards one side.
+
+Nothing needs compiling locally before a tag, because the `Build` workflow builds every image from a clean checkout. The native suites are the one exception worth running on the host, since no workflow covers them, and the single `native` environment picks up every suite under `test/`:
 
 ```shell
-pio run -e display -e controller -e display-headless -e display-headless-8m
-pio test -e native_autotune -e native_puckflow -e native_buttons
+pio test -e native
 ```
 
-Run every native environment rather than a remembered list, because upstream adds them: `native_puckflow` and `native_buttons` both arrived with the v1.8.17 sync. Rebuild the web bundle first with `./scripts/build_webui.sh` whenever upstream has touched `web/`, since the checked out `src/display/webassets` is git ignored and will otherwise still hold the previous sync's bundle.
+Never name environments from memory, because upstream keeps moving them: the separate `native_autotune`, `native_puckflow` and `native_buttons` environments were merged into `native`, which now collects every suite under `test/`. The same caution applies to the web bundle if you do build locally, since the checked out `src/display/webassets` is git ignored and survives a branch switch holding the previous bundle; `./scripts/build_webui.sh` refreshes it.
 
-Confirm the rebase preserved the fork delta before going further, since a lost `RELEASE_URL` is the one mistake that costs a USB flash. The diff against upstream should still be the same four files and nothing else:
+Confirm the rebase preserved our commits before going further, since a lost `RELEASE_URL` is the one mistake that costs a USB flash. The diff against upstream should show the plumbing and the local work, and nothing you did not put there:
 
 ```shell
 git diff --stat origin/master...fork-ota
@@ -65,9 +66,11 @@ The `Build` workflow now compares `RELEASE_URL` against the repository doing the
 
 The rule that follows: a stock reset must be treated as a USB operation, not an OTA one. Publishing vanilla upstream content to the fork will now be refused by CI, and rightly so.
 
+It happened a second time, deliberately and expensively, on 2026-11-07. After the TRIAC recovery the machine was moved to tracking upstream directly, so both boards ran stock upstream `v1.9.0` and the display polled `jniebuhr/gaggimate`. Coming back took a cable on 2026-11-08: `v1.10.0` is the first release carrying the guard-window work, the display took it over USB because it was not listening to the fork, and the controller followed over BLE from the display's own update screen. Any release that follows a period on upstream's channel is a USB release for the display, whatever the release notes say.
+
 ## Rules that will bite if ignored
 
-- The version must compare strictly greater by semver than what is installed, for the display and the controller independently. Re-publishing the same tag is a no-op; every iteration needs a new tag. Both boards ran `v1.8.15` from the 2026-08-19 recovery until `v1.8.16` on 2026-08-24, the first routine upstream sync on this arrangement and the first release cut without a repair to make, then `v1.8.17` on 2026-09-06, so the next release must be `v1.8.18` or higher. The controller reached `v1.8.15` in two hops, `v1.8.11` to `v1.8.13` over the display's BLE relay during the recovery and then `v1.8.13` to `v1.8.15` over the air once the pair was healthy again, which is also the first clean end to end exercise of the fork channel. A `v1.8.14` tag exists locally on the abandoned `bridge-display` branch and must never be pushed: it was a display image built from `v1.8.11` content, numbered above the published `v1.8.13` so it would not update itself mid-repair. Delete it and the branch once the machine has been stable for a while.
+- The version must compare strictly greater by semver than what is installed, for the display and the controller independently. Re-publishing the same tag is a no-op; every iteration needs a new tag. Both boards ran `v1.8.15` from the 2026-08-19 recovery until `v1.8.16` on 2026-08-24, the first routine upstream sync on this arrangement and the first release cut without a repair to make, then `v1.8.17` on 2026-09-06 and `v1.8.18` after that, so the next release must be above whatever the two boards report, including upstream tags if they have spent time on that channel. The controller reached `v1.8.15` in two hops, `v1.8.11` to `v1.8.13` over the display's BLE relay during the recovery and then `v1.8.13` to `v1.8.15` over the air once the pair was healthy again, which is also the first clean end to end exercise of the fork channel. A `v1.8.14` tag exists locally on the abandoned `bridge-display` branch and must never be pushed: it was a display image built from `v1.8.11` content, numbered above the published `v1.8.13` so it would not update itself mid-repair. Delete it and the branch once the machine has been stable for a while.
 - Keep tags clean `vX.Y.Z`. Locally built firmware carries `git describe` output, and suffixes like `-4-gabcdef-dirty` are treated as prereleases with surprising ordering. Create the tag before building anything you intend to flash, because `version.h` is generated at build time: a build made just before tagging stamps the previous tag's describe output and will look like a downgrade.
 - The fork must stay public; the downloads are unauthenticated.
 - The release asset names are fixed. The standard display build publishes as `display-firmware.bin`, which is what this machine (LilyGo T-RGB) needs. Never rename assets.
