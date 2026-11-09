@@ -20,5 +20,7 @@ sim_data/
 out/
 # Local scratch: board photos, meter readings, downloaded release images
 temp/
+# Analysis scratch: subagent reports, shot samples, one-off dumps
+debug/
 
 web/store
