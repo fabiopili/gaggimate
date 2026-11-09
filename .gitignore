@@ -18,5 +18,7 @@ sim_data/
 
 # Local release staging (scripts/release.sh)
 out/
+# Local scratch: board photos, meter readings, downloaded release images
+temp/
 
 web/store
